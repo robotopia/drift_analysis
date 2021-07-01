@@ -1,0 +1,27 @@
+set terminal pngcairo size 500,1000
+set output '1274143152_J0024-1932_pulsestack.png'
+
+dat = '1274143152_J0024-1932.F.pdv'
+nbins = 256
+nsubint = 3762
+
+# 1226062160 --> 0.78
+# 1274143152 --> 0.36
+midphase = 0.36
+
+set xrange [-72:72] noextend
+set yrange [*:*] noextend
+set cbrange [-0.2:*] noextend
+
+set xlabel "Longitude (deg)"
+set ylabel "Pulse number"
+
+set ytics 100 out
+set xtics out
+
+unset colorbox
+unset key
+
+set palette rgbformulae 21,22,23
+
+p dat u (($3/nbins - midphase)*360):1:4 with image

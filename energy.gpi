@@ -1,0 +1,19 @@
+reset
+
+xlo = 190
+xhi = 210
+dat = "< awk '$3 >= ".xlo." && $3 <= ".xhi." {print}' 1226062160_J0024-1932.F.pdv"
+
+deglo = (xlo/256.0 - 0.78)*360
+deghi = (xhi/256.0 - 0.78)*360
+
+set xlabel "Pulse number"
+set ylabel sprintf("Summed Stokes I (a.u.) between %.1f and %.1f deg", deglo, deghi)
+
+unset key
+
+set xrange [*:*] noextend
+set xtics 100
+set mxtics 20
+
+plot dat u 1:4 smooth frequency w l
