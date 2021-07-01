@@ -27,6 +27,14 @@ is_local_max = np.logical_and(smoothed_pulsestack > lshifted, smoothed_pulsestac
 is_max_and_bright = np.logical_and(is_local_max, smoothed_pulsestack > 0.8*sigma)
 max_locations = np.where(is_max_and_bright)
 
+# Manually flag some outliers
+# These indices depend on the exact max_locations already obtained, so any changes to the
+# code above this point MAY require this flagging to be redone.
+ml = np.array(max_locations)
+for i in range(ml.shape[1]):
+    print("{} {} {}".format(i, ml[0,i], ml[1,i]))
+max_locations = np.delete(max_locations, [23, 52, 77, 125, 132, 179, 350, 396, 399, 510], axis=-1)
+
 # Manually set the driftband boundaries.
 # A boundary is defined as a line drawn on an array of the same dimensions as cropped_pulsestack.
 # The driftband_boundary_points is a list of pairs of points [[x1,y1],[x2,y2]],
