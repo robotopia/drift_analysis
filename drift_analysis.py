@@ -2,11 +2,13 @@ import numpy as np
 import matplotlib.pyplot as plt
 from scipy.ndimage import gaussian_filter1d
 from numpy.polynomial.polynomial import polyfit, polyval
+from scipy.interpolate import interp1d
 
 dat = np.loadtxt('1274143152_J0024-1932.F.pdv')
 
 npulses = int(dat[-1,0] + 1)
 nbins   = int(dat[-1,2] + 1)
+dph     = 360/nbins
 
 pulsestack = np.reshape(dat[:,3], (npulses,nbins))
 
@@ -34,7 +36,7 @@ max_locations = np.where(is_max_and_bright)
 ml = np.array(max_locations)
 #for i in range(ml.shape[1]):
 #    print("{} {} {}".format(i, ml[0,i], ml[1,i]))
-max_locations = np.delete(max_locations, [23, 52, 77, 125, 132, 179, 276, 350, 396, 399, 510], axis=-1)
+max_locations = np.delete(max_locations, [23, 52, 77, 125, 132, 149, 153, 157, 179, 276, 350, 396, 399, 510], axis=-1)
 
 # Manually set the driftband boundaries.
 # A boundary is defined as a line drawn on an array of the same dimensions as cropped_pulsestack.
@@ -54,7 +56,7 @@ driftband_boundary_points = np.array([
         [[109,87], [16,121]],
         [[85,113], [39,121]],
         [[104,123], [27,132]],
-        [[52,135], [13,167]],
+        [[59,135], [13,167]],
         [[90,138], [20,192]],
         [[90,179], [18,232]],
         [[86,220], [21,261]],
@@ -65,7 +67,7 @@ driftband_boundary_points = np.array([
         [[78,330], [22,345]],
         [[71,342], [20,353]],
         [[99,355], [23,370]],
-        [[39,374], [23,382]],
+        [[59,374], [23,382]],
         [[76,382], [26,404]],
         [[88,395], [16,437]],
         [[89,420], [6,479]],
@@ -108,10 +110,41 @@ db_xys = [np.transpose(driftband_points[i]) for i in range(len(driftband_points)
 
 # Fit lines to each driftband
 linear_fits = [polyfit(db_xys[i][0,:], db_xys[i][1,:], 1) for i in range(len(db_xys))]
+# One of the driftbands (18) has only one point in it. Set its slope equal to the slope of
+# the following driftband.
+db = 19
+linear_fits[db][1] = linear_fits[db+1][1]
+linear_fits[db][0] = driftband_points[db][0][1] - driftband_points[db][0][0]*linear_fits[db][1]
+driftrates = dph/np.array(linear_fits)[:,1] # deg per pulse
+
+# Get "pulse-intercept" of each driftband fit with a "fiducial x" (xref)
+xref = 55
+prefs = np.array([polyval(xref, linear_fits[i]) for i in range(len(linear_fits))])
+
+# Turn these into nominal "P3-phases" by interpolating between driftband number and prefs
+P3phase_interp = interp1d(prefs, np.arange(ndriftbands), kind='linear', fill_value="extrapolate")
+#print(ml.shape)
+nonempty_pulses = np.unique(ml[0,:])
+P3phases = P3phase_interp(nonempty_pulses)
+
+# For each driftband, get a P3 and an "inverse driftrate"
+# The slope between the two should be the "invariant" P2
+P3 = np.diff(prefs)
+inv_dr = 1/driftrates[:-1]
+# Remove ones near drift sequence boundaries (and other pathological cases)
+#print(P3)
+#print(inv_dr)
+delete_idxs = [7, 18, 19]
+P3 = np.delete(P3, delete_idxs)
+inv_dr = np.delete(inv_dr, delete_idxs)
+
+P2 = np.dot(P3, P3)/(P3.T @ inv_dr)
 
 ############
 # PLOTTING #
 ############
+
+plt.figure(figsize=(10,40))
 
 # Pulsestack (image)
 #plt.imshow(pulsestack, aspect='auto', origin='lower', interpolation='none')
@@ -137,4 +170,50 @@ for lfit in linear_fits:
 # Profile:
 #plt.plot(np.sum(pulsestack, axis=0))
 
-plt.show()
+plt.xlabel("Rotation phase (in pixels)")
+plt.ylabel("Pulse number")
+plt.ylim([-0.5,npulses-0.5])
+plt.tight_layout()
+plt.savefig("1274143152_linfits.png")
+
+# FIGURE 2
+plt.figure(2)
+#plt.clf()
+
+# Plot P3 vs inverse driftrate
+plt.plot(P3, inv_dr, 'o')
+plotP3 = np.array([np.min(P3), np.max(P3)])
+ploty = plotP3/P2
+plt.plot(plotP3, ploty, 'k--')
+plt.xlabel("P_3 (P_1)")
+plt.ylabel("1/Driftrate (pulses per deg)")
+plt.title("P_2 = {:.1f} deg".format(np.abs(P2)))
+
+# Plot P3phases
+#plt.plot(nonempty_pulses, P3phases, '-o')
+#plt.xlabel("Pulse number")
+#plt.ylabel("P3 phase")
+
+plt.savefig("1274143152_P3_vs_dr.png")
+
+# FIGURE 3
+plt.figure(3)
+
+# Plot drift rates against pulse number
+plt.plot(prefs, driftrates, 'o')
+plt.xlabel("Pulse number of driftband intercept through x={}".format(xref))
+plt.ylabel("Drift rate (deg per pulse)")
+
+plt.savefig("1274143152_dr_over_time.png")
+
+# FIGURE 3
+plt.figure(4)
+
+# Plot est. P3 against pulse number
+plt.plot(prefs, P2/driftrates, 'o')
+plt.xlabel("Pulse number of driftband intercept through x={}".format(xref))
+plt.ylabel("P_3 (P_1)")
+
+plt.savefig("1274143152_P3_over_time.png")
+
+#plt.show()
