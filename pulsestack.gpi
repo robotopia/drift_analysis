@@ -1,13 +1,14 @@
-set terminal pngcairo size 500,1000
-set output '1274143152_J0024-1932_pulsestack.png'
+set terminal pngcairo size 500,3800
+set output '1226062160_J0024-1932_pulsestack.png'
 
-dat = '1274143152_J0024-1932.F.pdv'
+dat = '1226062160_J0024-1932.F.pdv'
 nbins = 256
 nsubint = 3762
 
-# 1226062160 --> 0.78
+# 1226062160 --> 0.78 (for period = 1.3062511 s)
+# 1226062160 --> 0.53 (for period = 1.306251778 s)
 # 1274143152 --> 0.36
-midphase = 0.36
+midphase = 0.65
 
 set xrange [-72:72] noextend
 set yrange [*:*] noextend
