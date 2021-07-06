@@ -1,35 +1,30 @@
 import numpy as np
 import matplotlib.pyplot as plt
-from scipy.ndimage import gaussian_filter1d
 from numpy.polynomial.polynomial import polyfit, polyval
 from scipy.interpolate import interp1d
+import pulsestack
 
-dat = np.loadtxt('1274143152_J0024-1932.F.pdv')
+class DriftAnalysis(pulsestack.Pulsestack):
+    def get_local_maxima(self, min_value=None):
+        is_bigger_than_left  = self.values[1:-1] >= self.values[:-2]
+        is_bigger_than_right = self.values[1:-1] >= self.values[2:]
+        is_local_max = np.logical_and(is_bigger_than_left, is_bigger_than_right)
 
-npulses = int(dat[-1,0] + 1)
-nbins   = int(dat[-1,2] + 1)
-dph     = 360/nbins
+        if min_value is not None:
+            is_local_max = np.logical_and(is_local_max, self.values[1:-1] > min_value)
 
-pulsestack = np.reshape(dat[:,3], (npulses,nbins))
+        self.max_locations = np.array(np.where(is_local_max))
 
-pulses = np.arange(npulses)
+        # Add one to phase (bin) locations because of previous splicing
+        self.max_locations[1] += 1
 
-cropped_pulsestack = pulsestack[:,320:436]
+    def plot_maxima(self, fmt='rx', **kwargs):
+        # Show where the local maxima are
+        x = self.max_locations[1]*self.dphase_deg + self.first_phase
+        y = self.max_locations[0]*self.dpulse + self.first_pulse
+        plt.plot(x, y, fmt)
 
-# Characterise the noise (in an off-pulse region)
-sigma = np.std(pulsestack[:,0:320])
-
-# Smooth with a gaussian filter
-stdev = 5 # pixels
-smoothed_pulsestack = gaussian_filter1d(cropped_pulsestack, stdev, mode='wrap')
-
-# Get ALL the local maxima
-lshifted = np.roll(smoothed_pulsestack, -1, axis=-1)
-rshifted = np.roll(smoothed_pulsestack,  1, axis=-1)
-is_local_max = np.logical_and(smoothed_pulsestack > lshifted, smoothed_pulsestack > rshifted)
-is_max_and_bright = np.logical_and(is_local_max, smoothed_pulsestack > 0.8*sigma)
-max_locations = np.where(is_max_and_bright)
-
+'''
 # Manually flag some outliers
 # These indices depend on the exact max_locations already obtained, so any changes to the
 # code above this point MAY require this flagging to be redone.
@@ -115,7 +110,7 @@ linear_fits = [polyfit(db_xys[i][0,:], db_xys[i][1,:], 1) for i in range(len(db_
 db = 19
 linear_fits[db][1] = linear_fits[db+1][1]
 linear_fits[db][0] = driftband_points[db][0][1] - driftband_points[db][0][0]*linear_fits[db][1]
-driftrates = dph/np.array(linear_fits)[:,1] # deg per pulse
+driftrates = dph_deg/np.array(linear_fits)[:,1] # deg per pulse
 
 # Get "pulse-intercept" of each driftband fit with a "fiducial x" (xref)
 xref = 55
@@ -145,14 +140,6 @@ P2 = np.dot(P3, P3)/(P3.T @ inv_dr)
 ############
 
 plt.figure(figsize=(10,40))
-
-# Pulsestack (image)
-#plt.imshow(pulsestack, aspect='auto', origin='lower', interpolation='none')
-plt.imshow(cropped_pulsestack, aspect='auto', origin='lower', interpolation='none')
-#plt.imshow(smoothed_pulsestack, aspect='auto', origin='lower', interpolation='none')
-
-# Show where the local maxima are
-plt.plot(max_locations[1], max_locations[0], 'rx')
 
 # Show where the drift band boundaries are
 for p in driftband_boundary_points:
@@ -217,3 +204,29 @@ plt.ylabel("P_3 (P_1)")
 plt.savefig("1274143152_P3_over_time.png")
 
 #plt.show()
+'''
+
+if __name__ == '__main__':
+    # Load the data
+    ps = DriftAnalysis()
+    ps.load_from_pdv('1274143152_J0024-1932.F.pdv', 'I')
+    ps.set_fiducial_phase(131.836)
+
+    # Characterise the noise (in an off-pulse region)
+    off_pulse_ps = ps.crop(phase_deg_range=[None, -20], inplace=False)
+    sigma = np.std(off_pulse_ps.values)
+
+    # Crop to just the central 40 deg
+    ps.crop(phase_deg_range=[-20, 20])
+
+    # Smooth pulses with a Gaussian filter
+    kernel_sigma = 1.75 # deg
+    smoothed_ps = ps.smooth_with_gaussian(kernel_sigma, inplace=False)
+
+    # Find the local maxima
+    smoothed_ps.get_local_maxima(min_value=0.8*sigma)
+
+    smoothed_ps.plot_image(cmap="hot")
+    smoothed_ps.plot_maxima(fmt='gx')
+    plt.show()
+
