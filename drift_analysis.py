@@ -2,12 +2,15 @@ import numpy as np
 import matplotlib.pyplot as plt
 from numpy.polynomial.polynomial import polyfit, polyval
 from scipy.interpolate import interp1d
+import tkinter
+import tkinter.filedialog
 import pulsestack
-
 
 class DriftAnalysis(pulsestack.Pulsestack):
     def __init__(self):
         self.max_locations = np.array([])
+        self.maxima_plt = None
+        self.maxima_fmt = 'gx'
 
     def get_local_maxima(self, min_value=None):
         is_bigger_than_left  = self.values[:,1:-1] >= self.values[:,:-2]
@@ -27,24 +30,39 @@ class DriftAnalysis(pulsestack.Pulsestack):
         self.max_locations[1] = self.max_locations[1]*self.dphase_deg + self.first_phase
 
     def save_maxima(self, outfile):
-        np.savetxt(outfile, self.max_locations)
+        np.savetxt(outfile, np.transpose(self.max_locations), header="phase_(deg) pulse_number")
 
     def load_maxima(self, infile):
-        self.max_locations = np.loadtxt(infile)
+        try:
+            dat = np.transpose(np.loadtxt(infile))
+        except:
+            print("Error opening {} with NumPy loadtxt()".format(infile))
+            return
 
-class MaximaInteractivePlot(DriftAnalysis):
+        if dat.shape[0] != 2:
+            print("Error opening {}. It must have two columns of data")
+            return
+
+        self.max_locations = np.transpose(np.loadtxt(infile))
+
+    def plot_maxima(self, **kwargs):
+        if self.maxima_plt is None:
+            self.maxima_plt, = self.ax.plot(self.max_locations[1], self.max_locations[0], self.maxima_fmt, **kwargs)
+        else:
+            self.maxima_plt.set_data(self.max_locations[1,:], self.max_locations[0,:])
+
+class DriftAnalysisInteractivePlot(DriftAnalysis):
     def __init__(self):
-        self.mode       = "select"
-        self.selected   = None
+        super(DriftAnalysisInteractivePlot, self).__init__()
+        self.mode         = "maxima"
+        self.selected     = None
         self.selected_plt = None
 
-    def select(self, event):
-        if event.inaxes != self.maxima_plt.axes:
-            return
-        if self.mode == "select":
+    def on_button_press_event(self, event):
+        if self.mode == "maxima":
             idx, dist = self.closest_maximum(event.x, event.y)
 
-            if dist > 10:
+            if dist > 10: # i.e. if mouse click is more than 10 pixels away from the nearest point
                 self.selected = None
             else:
                 self.selected = idx
@@ -54,24 +72,70 @@ class MaximaInteractivePlot(DriftAnalysis):
                     self.selected_plt, = self.ax.plot([self.max_locations[1,self.selected]], [self.max_locations[0,self.selected]], 'wo')
                 else:
                     self.selected_plt.set_data([self.max_locations[1,self.selected]], [self.max_locations[0,self.selected]])
+            else:
+                if self.selected_plt is not None:
+                    self.selected_plt.set_data([], [])
+            
+            if self.selected_plt is not None:
                 self.selected_plt.figure.canvas.draw()
 
-    def plot_maxima(self, ax=None, fmt='rx', **kwargs):
-        # Show where the local maxima are
-        if ax is None:
-            self.fig, self.ax = plt.subplots()
-        else:
-            self.ax = ax
-        self.maxima_plt, = ax.plot(self.max_locations[1], self.max_locations[0], fmt)
+    def on_key_press_event(self, event):
+        '''
+        In "maxima" mode:
+            d - delete point selected with mouse
+            S - save all points to file
+            O - load points from file
+            c - clear (delete all points)
+        '''
+        # 'd' = delete selected point
+        if event.key == "d":
+            if self.selected is not None:
+                # Delete the selected point from the actual list
+                self.max_locations = np.delete(self.max_locations, self.selected, axis=-1)
 
-        # Make it interactive!
-        self.cid = self.maxima_plt.figure.canvas.mpl_connect('button_press_event', self.select)
+                # Delete the point from the plot
+                self.plot_maxima()
+                self.selected_plt.set_data([], [])
+
+                # Unselect
+                self.selected = None
+
+                # Redraw the figure
+                self.selected_plt.figure.canvas.draw()
+
+        # 'S' = save all points from file
+        if event.key == "S":
+            root = tkinter.Tk()
+            root.withdraw()
+            filename = tkinter.filedialog.asksaveasfilename(filetypes=(("All files", "*.*"),))
+            if filename:
+                self.save_maxima(filename)
+
+        # 'O' = Load points from file
+        if event.key == "O":
+            root = tkinter.Tk()
+            root.withdraw()
+            filename = tkinter.filedialog.askopenfilename(filetypes=(("All files", "*.*"),))
+            if filename:
+                self.load_maxima(filename)
+                self.plot_maxima()
+                self.maxima_plt.figure.canvas.draw()
 
     def closest_maximum(self, x, y):
         max_locations_display = self.ax.transData.transform(np.transpose(np.flip(self.max_locations, axis=0)))
         dists = np.hypot(x - max_locations_display[:,0], y - max_locations_display[:,1])
         idx = np.argmin(dists)
         return idx, dists[idx]
+
+    def start(self):
+        '''
+        Start the interactive plot
+        '''
+
+        # Make it interactive!
+        self.plot_image()
+        self.cid = self.ps_image.figure.canvas.mpl_connect('button_press_event', self.on_button_press_event)
+        self.cid = self.ps_image.figure.canvas.mpl_connect('key_press_event', self.on_key_press_event)
 
 
 '''
@@ -258,7 +322,7 @@ plt.savefig("1274143152_P3_over_time.png")
 
 if __name__ == '__main__':
     # Load the data
-    ps = MaximaInteractivePlot()
+    ps = DriftAnalysisInteractivePlot()
     ps.load_from_pdv('1274143152_J0024-1932.F.pdv', 'I')
     ps.set_fiducial_phase(131.836)
 
@@ -269,6 +333,7 @@ if __name__ == '__main__':
     # Crop to just the central 40 deg
     ps.crop(phase_deg_range=[-20, 20])
 
+    '''
     # Smooth pulses with a Gaussian filter
     kernel_sigma = 1.75 # deg
     smoothed_ps = ps.smooth_with_gaussian(kernel_sigma, inplace=False)
@@ -276,7 +341,8 @@ if __name__ == '__main__':
     # Find the local maxima
     smoothed_ps.get_local_maxima(min_value=0.8*sigma)
 
-    ps.plot_image(cmap="hot")
-    smoothed_ps.plot_maxima(fmt='gx', ax=ps.ax)
+    '''
+    ps.start()
+    #smoothed_ps.plot_maxima(fmt='gx', ax=ps.ax)
     plt.show()
 
