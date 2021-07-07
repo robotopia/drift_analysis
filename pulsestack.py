@@ -119,11 +119,12 @@ class Pulsestack:
 
     def plot_image(self, **kwargs):
         # Plots the pulsestack as an image
+        self.fig, self.ax = plt.subplots()
         extent = (self.first_phase - 0.5*self.dphase_deg,
                   self.first_phase + (self.values.shape[1] - 0.5)*self.dphase_deg,
                   self.first_pulse - 0.5*self.dpulse,
                   self.first_pulse + (self.values.shape[0] - 0.5)*self.dpulse)
-        plt.imshow(self.values, aspect='auto', origin='lower', interpolation='none', extent=extent, **kwargs)
+        self.ps_image = plt.imshow(self.values, aspect='auto', origin='lower', interpolation='none', extent=extent, **kwargs)
         plt.xlabel("Pulse phase (deg)")
         plt.ylabel("Pulse number")
 

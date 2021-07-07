@@ -4,25 +4,75 @@ from numpy.polynomial.polynomial import polyfit, polyval
 from scipy.interpolate import interp1d
 import pulsestack
 
+
 class DriftAnalysis(pulsestack.Pulsestack):
+    def __init__(self):
+        self.max_locations = np.array([])
+
     def get_local_maxima(self, min_value=None):
-        is_bigger_than_left  = self.values[1:-1] >= self.values[:-2]
-        is_bigger_than_right = self.values[1:-1] >= self.values[2:]
+        is_bigger_than_left  = self.values[:,1:-1] >= self.values[:,:-2]
+        is_bigger_than_right = self.values[:,1:-1] >= self.values[:,2:]
         is_local_max = np.logical_and(is_bigger_than_left, is_bigger_than_right)
 
         if min_value is not None:
-            is_local_max = np.logical_and(is_local_max, self.values[1:-1] > min_value)
+            is_local_max = np.logical_and(is_local_max, self.values[:,1:-1] > min_value)
 
         self.max_locations = np.array(np.where(is_local_max))
 
         # Add one to phase (bin) locations because of previous splicing
         self.max_locations[1] += 1
 
-    def plot_maxima(self, fmt='rx', **kwargs):
+        # Convert locations to data coordinates (pulse and phase)
+        self.max_locations[0] = self.max_locations[0]*self.dpulse + self.first_pulse
+        self.max_locations[1] = self.max_locations[1]*self.dphase_deg + self.first_phase
+
+    def save_maxima(self, outfile):
+        np.savetxt(outfile, self.max_locations)
+
+    def load_maxima(self, infile):
+        self.max_locations = np.loadtxt(infile)
+
+class MaximaInteractivePlot(DriftAnalysis):
+    def __init__(self):
+        self.mode       = "select"
+        self.selected   = None
+        self.selected_plt = None
+
+    def select(self, event):
+        if event.inaxes != self.maxima_plt.axes:
+            return
+        if self.mode == "select":
+            idx, dist = self.closest_maximum(event.x, event.y)
+
+            if dist > 10:
+                self.selected = None
+            else:
+                self.selected = idx
+
+            if self.selected is not None:
+                if self.selected_plt is None:
+                    self.selected_plt, = self.ax.plot([self.max_locations[1,self.selected]], [self.max_locations[0,self.selected]], 'wo')
+                else:
+                    self.selected_plt.set_data([self.max_locations[1,self.selected]], [self.max_locations[0,self.selected]])
+                self.selected_plt.figure.canvas.draw()
+
+    def plot_maxima(self, ax=None, fmt='rx', **kwargs):
         # Show where the local maxima are
-        x = self.max_locations[1]*self.dphase_deg + self.first_phase
-        y = self.max_locations[0]*self.dpulse + self.first_pulse
-        plt.plot(x, y, fmt)
+        if ax is None:
+            self.fig, self.ax = plt.subplots()
+        else:
+            self.ax = ax
+        self.maxima_plt, = ax.plot(self.max_locations[1], self.max_locations[0], fmt)
+
+        # Make it interactive!
+        self.cid = self.maxima_plt.figure.canvas.mpl_connect('button_press_event', self.select)
+
+    def closest_maximum(self, x, y):
+        max_locations_display = self.ax.transData.transform(np.transpose(np.flip(self.max_locations, axis=0)))
+        dists = np.hypot(x - max_locations_display[:,0], y - max_locations_display[:,1])
+        idx = np.argmin(dists)
+        return idx, dists[idx]
+
 
 '''
 # Manually flag some outliers
@@ -208,7 +258,7 @@ plt.savefig("1274143152_P3_over_time.png")
 
 if __name__ == '__main__':
     # Load the data
-    ps = DriftAnalysis()
+    ps = MaximaInteractivePlot()
     ps.load_from_pdv('1274143152_J0024-1932.F.pdv', 'I')
     ps.set_fiducial_phase(131.836)
 
@@ -226,7 +276,7 @@ if __name__ == '__main__':
     # Find the local maxima
     smoothed_ps.get_local_maxima(min_value=0.8*sigma)
 
-    smoothed_ps.plot_image(cmap="hot")
-    smoothed_ps.plot_maxima(fmt='gx')
+    ps.plot_image(cmap="hot")
+    smoothed_ps.plot_maxima(fmt='gx', ax=ps.ax)
     plt.show()
 
