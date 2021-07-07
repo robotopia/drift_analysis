@@ -15,6 +15,7 @@ class Pulsestack:
         # Figure out from the first few columns what the dimensions of the
         # pulsestack are, and store these to class variables
         self.npulses = int(dat[-1,0] + 1)
+        self.nfreqs  = int(dat[-1,1] + 1)
         self.nbins   = int(dat[-1,2] + 1)
         self.dph_deg = 360/self.nbins
 
@@ -26,7 +27,10 @@ class Pulsestack:
         stokes_col += 3 # (Stokes I starts in column 3)
 
         try:
-            self.values = np.reshape(dat[:,stokes_col], (self.npulses, self.nbins))
+            self.values = np.reshape(dat[:,stokes_col], (self.npulses, self.nfreqs, self.nbins))
+            # Frequency scrunch
+            self.values = np.mean(self.values, axis=1)
+            self.nfreqs = 1
         except:
             raise IndexError("Could not read Stokes {} data from {}".format(stokes, filename))
 
@@ -125,5 +129,6 @@ class Pulsestack:
                   self.first_pulse - 0.5*self.dpulse,
                   self.first_pulse + (self.values.shape[0] - 0.5)*self.dpulse)
         self.ps_image = plt.imshow(self.values, aspect='auto', origin='lower', interpolation='none', extent=extent, cmap="hot", **kwargs)
+        self.cbar = plt.colorbar()
         plt.xlabel("Pulse phase (deg)")
         plt.ylabel("Pulse number")

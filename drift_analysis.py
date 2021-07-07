@@ -20,14 +20,14 @@ class DriftAnalysis(pulsestack.Pulsestack):
         if min_value is not None:
             is_local_max = np.logical_and(is_local_max, self.values[:,1:-1] > min_value)
 
-        self.max_locations = np.array(np.where(is_local_max))
+        self.max_locations = np.array(np.where(is_local_max)).astype(float)
 
         # Add one to phase (bin) locations because of previous splicing
-        self.max_locations[1] += 1
+        self.max_locations[1,:] += 1
 
         # Convert locations to data coordinates (pulse and phase)
-        self.max_locations[0] = self.max_locations[0]*self.dpulse + self.first_pulse
-        self.max_locations[1] = self.max_locations[1]*self.dphase_deg + self.first_phase
+        self.max_locations[0,:] = self.max_locations[0,:]*self.dpulse + self.first_pulse
+        self.max_locations[1,:] = self.max_locations[1,:]*self.dphase_deg + self.first_phase
 
     def save_maxima(self, outfile):
         np.savetxt(outfile, np.transpose(self.max_locations), header="phase_(deg) pulse_number")
@@ -54,9 +54,12 @@ class DriftAnalysis(pulsestack.Pulsestack):
 class DriftAnalysisInteractivePlot(DriftAnalysis):
     def __init__(self):
         super(DriftAnalysisInteractivePlot, self).__init__()
-        self.mode         = "maxima"
+        self.mode         = "pulsestack"
         self.selected     = None
         self.selected_plt = None
+
+        self.smoothed_ps  = None
+        self.show_smooth  = False
 
     def on_button_press_event(self, event):
         if self.mode == "maxima":
@@ -81,43 +84,99 @@ class DriftAnalysisInteractivePlot(DriftAnalysis):
 
     def on_key_press_event(self, event):
         '''
+        m - toggle mode
         In "maxima" mode:
             d - delete point selected with mouse
             S - save all points to file
             O - load points from file
             c - clear (delete all points)
+        In "pulsestack" mode:
+            S - toggle smoothed pulsestack
+            ^ - find local peaks
         '''
-        # 'd' = delete selected point
-        if event.key == "d":
-            if self.selected is not None:
-                # Delete the selected point from the actual list
-                self.max_locations = np.delete(self.max_locations, self.selected, axis=-1)
+        if event.key == "m":
+            if self.mode == "maxima":
+                self.mode = "pulsestack"
+            elif self.mode == "pulsestack":
+                self.mode = "maxima"
+            return
 
-                # Delete the point from the plot
-                self.plot_maxima()
-                self.selected_plt.set_data([], [])
+        if self.mode == "maxima":
+            # 'd' = delete selected point
+            if event.key == "d":
+                if self.selected is not None:
+                    # Delete the selected point from the actual list
+                    self.max_locations = np.delete(self.max_locations, self.selected, axis=-1)
 
-                # Unselect
-                self.selected = None
+                    # Delete the point from the plot
+                    self.plot_maxima()
+                    self.selected_plt.set_data([], [])
 
-                # Redraw the figure
-                self.selected_plt.figure.canvas.draw()
+                    # Unselect
+                    self.selected = None
 
-        # 'S' = save all points from file
-        if event.key == "S":
-            root = tkinter.Tk()
-            root.withdraw()
-            filename = tkinter.filedialog.asksaveasfilename(filetypes=(("All files", "*.*"),))
-            if filename:
-                self.save_maxima(filename)
+                    # Redraw the figure
+                    self.selected_plt.figure.canvas.draw()
 
-        # 'O' = Load points from file
-        if event.key == "O":
-            root = tkinter.Tk()
-            root.withdraw()
-            filename = tkinter.filedialog.askopenfilename(filetypes=(("All files", "*.*"),))
-            if filename:
-                self.load_maxima(filename)
+            # 'S' = save all points from file
+            if event.key == "S":
+                root = tkinter.Tk()
+                root.withdraw()
+                filename = tkinter.filedialog.asksaveasfilename(filetypes=(("All files", "*.*"),))
+                if filename:
+                    self.save_maxima(filename)
+
+            # 'O' = Load points from file
+            if event.key == "O":
+                root = tkinter.Tk()
+                root.withdraw()
+                filename = tkinter.filedialog.askopenfilename(filetypes=(("All files", "*.*"),))
+                if filename:
+                    self.load_maxima(filename)
+                    self.plot_maxima()
+                    self.maxima_plt.figure.canvas.draw()
+
+            # 'c' = clear (delete all points)
+            if event.key == 'c':
+                self.max_locations = np.array([])
+                if self.maxima_plt is not None:
+                    self.maxima_plt.set_data([], [])
+                    self.maxima_plt.figure.canvas.draw()
+
+        elif self.mode == "pulsestack":
+            # 'S' = toggle smooth pulsestack
+            if event.key == "S":
+                if self.smoothed_ps is None:
+                    self.show_smooth = False
+
+                if self.show_smooth == False:
+                    root = tkinter.Tk()
+                    root.withdraw()
+                    sigma = tkinter.simpledialog.askfloat("Smoothing kernel", "Input Gaussian kernel size (deg)", parent=root)
+                    if sigma:
+                        self.smoothed_ps = self.smooth_with_gaussian(sigma, inplace=False)
+                        self.ps_image.set_data(self.smoothed_ps.values)
+                        self.show_smooth = True
+                        # Update the colorbar
+                        self.cbar.update_normal(self.ps_image)
+                        self.ps_image.figure.canvas.draw()
+
+                else:
+                    self.ps_image.set_data(self.values)
+                    self.show_smooth = False
+                    # Update the colorbar
+                    self.cbar.update_normal(self.ps_image)
+                    self.ps_image.figure.canvas.draw()
+
+            if event.key == "^":
+                root = tkinter.Tk()
+                root.withdraw()
+                min_value = tkinter.simpledialog.askfloat("Min threshold", "Input minimum threshold for maxima", parent=root)
+                if self.show_smooth == True:
+                    self.smoothed_ps.get_local_maxima(min_value=min_value)
+                    self.max_locations = self.smoothed_ps.max_locations
+                else:
+                    self.get_local_maxima(min_value=min_value)
                 self.plot_maxima()
                 self.maxima_plt.figure.canvas.draw()
 
