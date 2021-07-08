@@ -91,7 +91,7 @@ class DriftAnalysisInteractivePlot(DriftAnalysis):
         self.show_smooth  = False
 
     def on_button_press_event(self, event):
-        if self.mode == "subpulse":
+        if self.mode == "delete_subpulse":
             idx, dist = self.closest_maximum(event.x, event.y)
 
             if dist > 10: # i.e. if mouse click is more than 10 pixels away from the nearest point
@@ -118,6 +118,7 @@ class DriftAnalysisInteractivePlot(DriftAnalysis):
                     self.get_local_maxima(maxima_threshold=event.ydata)
                 else:
                     self.smoothed_ps.get_local_maxima(maxima_threshold=event.ydata)
+                    self.maxima_threshold = self.smoothed_ps.maxima_threshold
                     self.max_locations = self.smoothed_ps.max_locations
                 self.subpulses_plt.set_data(self.max_locations[1,:], self.max_locations[0,:])
                 self.fig.canvas.draw()
@@ -152,25 +153,10 @@ class DriftAnalysisInteractivePlot(DriftAnalysis):
         self.mode = "default"
 
     def on_key_press_event(self, event):
-        '''
-        m - toggle mode
-        In "subpulse" mode:
-            d - delete point selected with mouse
-            c - clear (delete all points)
-        In "default" mode:
-            S - toggle smoothed pulsestack
-            ^ - find local peaks
-        '''
-        if event.key == "m":
-            if self.mode == "subpulse":
-                self.mode = "default"
-            elif self.mode == "default":
-                self.mode = "subpulse"
-            return
 
-        if self.mode == "subpulse":
+        if self.mode == "delete_subpulse":
             # 'd' = delete selected point
-            if event.key == "d":
+            if event.key == "enter":
                 if self.selected is not None:
                     # Delete the selected point from the actual list
                     self.subpulses = np.delete(self.subpulses, self.selected, axis=-1)
@@ -184,6 +170,12 @@ class DriftAnalysisInteractivePlot(DriftAnalysis):
 
                     # Redraw the figure
                     self.fig.canvas.draw()
+
+            elif event.key == "escape":
+                self.selected = None
+                if self.selected_plt is not None:
+                    self.selected_plt.set_data([], [])
+                self.set_default_mode()
 
             '''
             # 'S' = save all points from file
@@ -203,8 +195,23 @@ class DriftAnalysisInteractivePlot(DriftAnalysis):
                     self.fig.canvas.draw()
 
         elif self.mode == "default":
+
+            if event.key == "h":
+                print("Key   Description")
+                print("----------------------------------------------")
+                print("[Standard Matplotlib interface]")
+                print("s     Save plot")
+                print("l     Toggle y-axis logarithmic")
+                print("L     Toggle x-axis logarithmic")
+                print("[Drift analysis]")
+                print("^     Set subpulses to local maxima")
+                print("S     Toggle pulsestack smoothed with Gaussian filter")
+                print("F     Set fiducial point")
+                print("C     Crop pulsestack to current visible image")
+                print("d     Delete a subpulse")
+
             # 'S' = toggle smooth pulsestack
-            if event.key == "S":
+            elif event.key == "S":
                 if self.smoothed_ps is None:
                     self.show_smooth = False
 
@@ -229,8 +236,9 @@ class DriftAnalysisInteractivePlot(DriftAnalysis):
 
             elif event.key == "^":
                 self.ax.set_title("Set threshold on colorbar. Press enter when done, esc to cancel.")
+                self.old_maxima_threshold = self.maxima_threshold # Save value in case they cancel
                 if self.show_smooth == True:
-                    self.smoothed_ps.get_local_maxima()
+                    self.smoothed_ps.get_local_maxima(maxima_threshold=self.smoothed_ps.maxima_threshold)
                     self.max_locations = self.smoothed_ps.max_locations
                 else:
                     self.get_local_maxima()
@@ -249,18 +257,10 @@ class DriftAnalysisInteractivePlot(DriftAnalysis):
                 self.fig.canvas.draw()
                 self.mode = "crop"
 
-            elif event.key == "h":
-                print("Key   Description")
-                print("----------------------------------------------")
-                print("[Standard Matplotlib interface]")
-                print("s     Save plot")
-                print("l     Toggle y-axis logarithmic")
-                print("L     Toggle x-axis logarithmic")
-                print("[Drift analysis]")
-                print("^     Set subpulses to local maxima")
-                print("S     Toggle pulsestack smoothed with Gaussian filter")
-                print("F     Set fiducial point")
-                print("C     Crop pulsestack to current visible image")
+            elif event.key == "d":
+                self.ax.set_title("Select a subpulse to delete. Then press enter to confirm, esc to leave delete mode.")
+                self.fig.canvas.draw()
+                self.mode = "delete_subpulse"
 
         elif self.mode == "set_threshold":
             if event.key == "enter":
@@ -268,7 +268,9 @@ class DriftAnalysisInteractivePlot(DriftAnalysis):
                 self.subpulses = self.max_locations
                 self.set_default_mode()
             elif event.key == "escape":
+                self.threshold_line.set_data([], [])
                 self.plot_subpulses()
+                self.maxima_threshold = self.old_maxima_threshold
                 self.set_default_mode()
 
         elif self.mode == "crop":
