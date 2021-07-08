@@ -133,7 +133,7 @@ class Pulsestack:
         # Plots the pulsestack as an image
         self.fig, self.ax = plt.subplots()
         extent = self.calc_image_extent()
-        self.ps_image = plt.imshow(self.values, aspect='auto', origin='lower', interpolation='none', extent=extent, cmap="hot", **kwargs)
+        self.ps_image = plt.imshow(self.values, aspect='auto', origin='lower', interpolation='none', extent=extent, cmap='hot', **kwargs)
         self.cbar = plt.colorbar()
         plt.xlabel("Pulse phase (deg)")
         plt.ylabel("Pulse number")

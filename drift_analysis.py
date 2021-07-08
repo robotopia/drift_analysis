@@ -193,6 +193,7 @@ class DriftAnalysisInteractivePlot(DriftAnalysis):
                 print("D     Delete a subpulse")
                 print("A     Add a subpulse")
                 print("P     Plot the profile of the current view")
+                print("T     Plot the LRFS of the current view")
 
             # 'S' = toggle smooth pulsestack
             elif event.key == "S":
@@ -262,6 +263,23 @@ class DriftAnalysisInteractivePlot(DriftAnalysis):
                 profile_ax.set_xlabel("Pulse phase (deg)")
                 profile_ax.set_ylabel("Flux density (a.u.)")
                 profile_ax.set_title("Profile of pulses {} to {}".format(cropped.first_pulse, cropped.first_pulse + (cropped.npulses - 1)*cropped.dpulse))
+                profile_fig.show()
+
+            elif event.key == "T":
+                cropped = self.crop(pulse_range=self.ax.get_ylim(), phase_deg_range=self.ax.get_xlim(), inplace=False)
+
+                # Make the LRFS
+                lrfs = np.fft.rfft(cropped.values, axis=0)
+                freqs = np.fft.rfftfreq(cropped.npulses, cropped.dpulse)
+                df    = freqs[1] - freqs[0]
+
+                profile_fig, profile_ax = plt.subplots()
+                extent = cropped.calc_image_extent()
+                extent = (extent[0], extent[1], freqs[1] - df/2, freqs[-1] + df/2)
+                profile_ax.imshow(np.abs(lrfs[1:,:]), aspect='auto', origin='lower', interpolation='none', cmap='hot', extent=extent)
+                profile_ax.set_xlabel("Pulse phase (deg)")
+                profile_ax.set_ylabel("cycles per period")
+                profile_ax.set_title("LRFS of pulses {} to {}".format(cropped.first_pulse, cropped.first_pulse + (cropped.npulses - 1)*cropped.dpulse))
                 profile_fig.show()
 
         elif self.mode == "set_threshold":
