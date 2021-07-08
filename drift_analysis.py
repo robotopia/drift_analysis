@@ -5,11 +5,12 @@ from scipy.interpolate import interp1d
 import tkinter
 import tkinter.filedialog
 import tkinter.simpledialog
+import json
 import pulsestack
 
 class DriftAnalysis(pulsestack.Pulsestack):
     def __init__(self):
-        self.max_locations = np.array([])
+        self.max_locations = np.array([[], []])
         self.maxima_plt = None
         self.maxima_fmt = 'gx'
         self.maxima_threshold = 0.0
@@ -36,6 +37,44 @@ class DriftAnalysis(pulsestack.Pulsestack):
         self.max_locations[0,:] = self.max_locations[0,:]*self.dpulse + self.first_pulse
         self.max_locations[1,:] = self.max_locations[1,:]*self.dphase_deg + self.first_phase
 
+    def save_json(self, jsonfile):
+        drift_dict = {
+                "pdvfile":             self.pdvfile,
+                "stokes":              self.stokes,
+                "npulses":             self.npulses,
+                "nbins":               self.nbins,
+                "first_pulse":         self.first_pulse,
+                "first_phase":         self.first_phase,
+                "dpulse":              self.dpulse,
+                "dphase_deg":          self.dphase_deg,
+                "max_locations_pulse": list(self.max_locations[0]),
+                "max_locations_phase": list(self.max_locations[1]),
+                "maxima_threshold":    self.maxima_threshold,
+                "maxima_fmt":          self.maxima_fmt,
+                "values":              list(self.values.flatten())
+                }
+        with open(jsonfile, "w") as f:
+            json.dump(drift_dict, f)
+
+    def load_json(self, jsonfile):
+
+        with open(jsonfile, "r") as f:
+            drift_dict = json.load(f)
+
+        self.pdvfile          = drift_dict["pdvfile"]
+        self.stokes           = drift_dict["stokes"]
+        self.npulses          = drift_dict["npulses"]
+        self.nbins            = drift_dict["nbins"]
+        self.first_pulse      = drift_dict["first_pulse"]
+        self.first_phase      = drift_dict["first_phase"]
+        self.dpulse           = drift_dict["dpulse"]
+        self.dphase_deg       = drift_dict["dphase_deg"]
+        self.max_locations    = np.array([drift_dict["max_locations_pulse"], drift_dict["max_locations_phase"]])
+        self.maxima_threshold = drift_dict["maxima_threshold"]
+        self.maxima_fmt       = drift_dict["maxima_fmt"]
+        self.values           = np.reshape(drift_dict["values"], (self.npulses, self.nbins))
+
+
     def save_maxima(self, outfile):
         np.savetxt(outfile, np.transpose(self.max_locations), header="phase_(deg) pulse_number")
 
@@ -61,7 +100,7 @@ class DriftAnalysis(pulsestack.Pulsestack):
 class DriftAnalysisInteractivePlot(DriftAnalysis):
     def __init__(self):
         super(DriftAnalysisInteractivePlot, self).__init__()
-        self.mode         = "pulsestack"
+        self.mode         = "default"
         self.selected     = None
         self.selected_plt = None
 
@@ -100,6 +139,32 @@ class DriftAnalysisInteractivePlot(DriftAnalysis):
                 self.plot_maxima()
                 self.fig.canvas.draw()
 
+        elif self.mode == "set_fiducial":
+            if event.inaxes == self.ax:
+                # Set the fiducial phase for this pulsestack
+                self.set_fiducial_phase(event.xdata)
+
+                # If necessary, also set the same fiducial phase for the smoothed pulsestack
+                if self.smoothed_ps is not None:
+                    self.smoothed_ps.set_fiducial_phase(event.xdata)
+
+                # Adjust all the maxima points
+                if self.max_locations.shape[1] > 0:
+                    self.max_locations[1] -= event.xdata
+
+                # Replot everything
+                current_xlim = self.ax.get_xlim()
+                current_ylim = self.ax.get_ylim()
+                self.ax.set_xlim(current_xlim - event.xdata)
+                self.ax.set_ylim(current_ylim)
+                self.ps_image.set_extent(self.calc_image_extent())
+                self.plot_maxima()
+                self.ax.set_title("")
+                self.fig.canvas.draw()
+
+                # Go back to default mode
+                self.mode = "default"
+
     def on_key_press_event(self, event):
         '''
         m - toggle mode
@@ -108,14 +173,14 @@ class DriftAnalysisInteractivePlot(DriftAnalysis):
             S - save all points to file
             O - load points from file
             c - clear (delete all points)
-        In "pulsestack" mode:
+        In "default" mode:
             S - toggle smoothed pulsestack
             ^ - find local peaks
         '''
         if event.key == "m":
             if self.mode == "maxima":
-                self.mode = "pulsestack"
-            elif self.mode == "pulsestack":
+                self.mode = "default"
+            elif self.mode == "default":
                 self.mode = "maxima"
             return
 
@@ -156,12 +221,12 @@ class DriftAnalysisInteractivePlot(DriftAnalysis):
 
             # 'c' = clear (delete all points)
             if event.key == 'c':
-                self.max_locations = np.array([])
+                self.max_locations = np.array([[], []])
                 if self.maxima_plt is not None:
                     self.maxima_plt.set_data([], [])
                     self.fig.canvas.draw()
 
-        elif self.mode == "pulsestack":
+        elif self.mode == "default":
             # 'S' = toggle smooth pulsestack
             if event.key == "S":
                 if self.smoothed_ps is None:
@@ -186,7 +251,7 @@ class DriftAnalysisInteractivePlot(DriftAnalysis):
                     self.cbar.update_normal(self.ps_image)
                     self.fig.canvas.draw()
 
-            if event.key == "^":
+            elif event.key == "^":
                 self.ax.set_title("Set threshold on colorbar. Press enter when done.")
                 if self.show_smooth == True:
                     self.smoothed_ps.get_local_maxima()
@@ -198,12 +263,35 @@ class DriftAnalysisInteractivePlot(DriftAnalysis):
                 self.fig.canvas.draw()
                 self.mode = "set_threshold"
 
+            elif event.key == "F":
+                self.ax.set_title("Click on the pulsestack to set a new fiducial point")
+                self.fig.canvas.draw()
+                self.mode = "set_fiducial"
+
+            elif event.key == "C":
+                self.ax.set_title("Press enter to confirm cropping to this view, esc to cancel")
+                self.fig.canvas.draw()
+                self.mode = "crop"
+
         elif self.mode == "set_threshold":
             if event.key == "enter":
                 self.ax.set_title("")
                 self.threshold_line.set_data([], [])
                 self.fig.canvas.draw()
-                self.mode = "pulsestack"
+                self.mode = "default"
+
+        elif self.mode == "crop":
+            if event.key == "enter":
+                self.ax.set_title("")
+                self.crop(pulse_range=self.ax.get_ylim(), phase_deg_range=self.ax.get_xlim())
+                self.ps_image.set_data(self.values)
+                self.ps_image.set_extent(self.calc_image_extent())
+                self.fig.canvas.draw()
+                self.mode = "default"
+            if event.key == "escape":
+                self.ax.set_title("")
+                self.fig.canvas.draw()
+                self.mode = "default"
 
     def closest_maximum(self, x, y):
         max_locations_display = self.ax.transData.transform(np.transpose(np.flip(self.max_locations, axis=0)))
@@ -218,8 +306,13 @@ class DriftAnalysisInteractivePlot(DriftAnalysis):
 
         # Make it interactive!
         self.plot_image()
+        self.plot_maxima()
+
         self.cid = self.fig.canvas.mpl_connect('button_press_event', self.on_button_press_event)
         self.cid = self.fig.canvas.mpl_connect('key_press_event', self.on_key_press_event)
+
+        # Show the plot
+        plt.show()
 
 
 '''
@@ -407,7 +500,9 @@ plt.savefig("1274143152_P3_over_time.png")
 if __name__ == '__main__':
     # Load the data
     ps = DriftAnalysisInteractivePlot()
+    #ps.load_json("test.json")
     ps.load_from_pdv('1274143152_J0024-1932.F.pdv', 'I')
+    '''
     ps.set_fiducial_phase(131.836)
 
     # Characterise the noise (in an off-pulse region)
@@ -416,6 +511,7 @@ if __name__ == '__main__':
 
     # Crop to just the central 40 deg
     ps.crop(phase_deg_range=[-20, 20])
+    '''
 
     '''
     # Smooth pulses with a Gaussian filter
@@ -427,6 +523,5 @@ if __name__ == '__main__':
 
     '''
     ps.start()
-    #smoothed_ps.plot_maxima(fmt='gx', ax=ps.ax)
-    plt.show()
+    ps.save_json("test.json")
 

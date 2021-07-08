@@ -7,6 +7,7 @@ class Pulsestack:
 
     def load_from_pdv(self, filename, stokes):
         # Read in the pdv data using numpy's handy loadtxt
+        self.pdvfile = filename
         dat = np.loadtxt(filename)
 
         # Record what Stokes parameter is being read
@@ -17,7 +18,6 @@ class Pulsestack:
         self.npulses = int(dat[-1,0] + 1)
         self.nfreqs  = int(dat[-1,1] + 1)
         self.nbins   = int(dat[-1,2] + 1)
-        self.dph_deg = 360/self.nbins
 
         # Pull out the column for this Stokes, and reshape it into a
         # pulsestack (i.e. 2D array)
@@ -105,6 +105,8 @@ class Pulsestack:
             newps.values        = newps.values[:,phase_bin_range[0]:phase_bin_range[1]]
             newps.first_phase  += phase_bin_range[0]*newps.dphase_deg
 
+        newps.npulses, newps.nbins = newps.values.shape
+
         return newps
 
     def smooth_with_gaussian(self, sigma, inplace=True):
@@ -121,13 +123,16 @@ class Pulsestack:
         newps.values = gaussian_filter1d(self.values, sigma/self.dphase_deg, mode='wrap')
         return newps
 
-    def plot_image(self, **kwargs):
-        # Plots the pulsestack as an image
-        self.fig, self.ax = plt.subplots()
-        extent = (self.first_phase - 0.5*self.dphase_deg,
+    def calc_image_extent(self):
+        return (self.first_phase - 0.5*self.dphase_deg,
                   self.first_phase + (self.values.shape[1] - 0.5)*self.dphase_deg,
                   self.first_pulse - 0.5*self.dpulse,
                   self.first_pulse + (self.values.shape[0] - 0.5)*self.dpulse)
+
+    def plot_image(self, **kwargs):
+        # Plots the pulsestack as an image
+        self.fig, self.ax = plt.subplots()
+        extent = self.calc_image_extent()
         self.ps_image = plt.imshow(self.values, aspect='auto', origin='lower', interpolation='none', extent=extent, cmap="hot", **kwargs)
         self.cbar = plt.colorbar()
         plt.xlabel("Pulse phase (deg)")
