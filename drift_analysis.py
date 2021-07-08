@@ -10,9 +10,9 @@ import pulsestack
 
 class DriftAnalysis(pulsestack.Pulsestack):
     def __init__(self):
-        self.max_locations = np.array([[], []])
-        self.maxima_plt = None
-        self.maxima_fmt = 'gx'
+        self.subpulses = np.array([[], []])
+        self.subpulses_plt = None
+        self.subpulses_fmt = 'gx'
         self.maxima_threshold = 0.0
 
     def get_local_maxima(self, maxima_threshold=None):
@@ -47,10 +47,10 @@ class DriftAnalysis(pulsestack.Pulsestack):
                 "first_phase":         self.first_phase,
                 "dpulse":              self.dpulse,
                 "dphase_deg":          self.dphase_deg,
-                "max_locations_pulse": list(self.max_locations[0]),
-                "max_locations_phase": list(self.max_locations[1]),
+                "subpulses_pulse":     list(self.subpulses[0]),
+                "subpulses_phase":     list(self.subpulses[1]),
                 "maxima_threshold":    self.maxima_threshold,
-                "maxima_fmt":          self.maxima_fmt,
+                "subpulses_fmt":       self.subpulses_fmt,
                 "values":              list(self.values.flatten())
                 }
         with open(jsonfile, "w") as f:
@@ -69,33 +69,16 @@ class DriftAnalysis(pulsestack.Pulsestack):
         self.first_phase      = drift_dict["first_phase"]
         self.dpulse           = drift_dict["dpulse"]
         self.dphase_deg       = drift_dict["dphase_deg"]
-        self.max_locations    = np.array([drift_dict["max_locations_pulse"], drift_dict["max_locations_phase"]])
+        self.subpulses        = np.array([drift_dict["subpulses_pulse"], drift_dict["subpulses_phase"]])
         self.maxima_threshold = drift_dict["maxima_threshold"]
-        self.maxima_fmt       = drift_dict["maxima_fmt"]
+        self.subpulses_fmt    = drift_dict["subpulses_fmt"]
         self.values           = np.reshape(drift_dict["values"], (self.npulses, self.nbins))
 
-
-    def save_maxima(self, outfile):
-        np.savetxt(outfile, np.transpose(self.max_locations), header="phase_(deg) pulse_number")
-
-    def load_maxima(self, infile):
-        try:
-            dat = np.transpose(np.loadtxt(infile))
-        except:
-            print("Error opening {} with NumPy loadtxt()".format(infile))
-            return
-
-        if dat.shape[0] != 2:
-            print("Error opening {}. It must have two columns of data")
-            return
-
-        self.max_locations = np.transpose(np.loadtxt(infile))
-
-    def plot_maxima(self, **kwargs):
-        if self.maxima_plt is None:
-            self.maxima_plt, = self.ax.plot(self.max_locations[1], self.max_locations[0], self.maxima_fmt, **kwargs)
+    def plot_subpulses(self, **kwargs):
+        if self.subpulses_plt is None:
+            self.subpulses_plt, = self.ax.plot(self.subpulses[1], self.subpulses[0], self.subpulses_fmt, **kwargs)
         else:
-            self.maxima_plt.set_data(self.max_locations[1,:], self.max_locations[0,:])
+            self.subpulses_plt.set_data(self.subpulses[1,:], self.subpulses[0,:])
 
 class DriftAnalysisInteractivePlot(DriftAnalysis):
     def __init__(self):
@@ -108,7 +91,7 @@ class DriftAnalysisInteractivePlot(DriftAnalysis):
         self.show_smooth  = False
 
     def on_button_press_event(self, event):
-        if self.mode == "maxima":
+        if self.mode == "subpulse":
             idx, dist = self.closest_maximum(event.x, event.y)
 
             if dist > 10: # i.e. if mouse click is more than 10 pixels away from the nearest point
@@ -118,9 +101,9 @@ class DriftAnalysisInteractivePlot(DriftAnalysis):
 
             if self.selected is not None:
                 if self.selected_plt is None:
-                    self.selected_plt, = self.ax.plot([self.max_locations[1,self.selected]], [self.max_locations[0,self.selected]], 'wo')
+                    self.selected_plt, = self.ax.plot([self.subpulses[1,self.selected]], [self.subpulses[0,self.selected]], 'wo')
                 else:
-                    self.selected_plt.set_data([self.max_locations[1,self.selected]], [self.max_locations[0,self.selected]])
+                    self.selected_plt.set_data([self.subpulses[1,self.selected]], [self.subpulses[0,self.selected]])
             else:
                 if self.selected_plt is not None:
                     self.selected_plt.set_data([], [])
@@ -136,7 +119,7 @@ class DriftAnalysisInteractivePlot(DriftAnalysis):
                 else:
                     self.smoothed_ps.get_local_maxima(maxima_threshold=event.ydata)
                     self.max_locations = self.smoothed_ps.max_locations
-                self.plot_maxima()
+                self.subpulses_plt.set_data(self.max_locations[1,:], self.max_locations[0,:])
                 self.fig.canvas.draw()
 
         elif self.mode == "set_fiducial":
@@ -149,8 +132,8 @@ class DriftAnalysisInteractivePlot(DriftAnalysis):
                     self.smoothed_ps.set_fiducial_phase(event.xdata)
 
                 # Adjust all the maxima points
-                if self.max_locations.shape[1] > 0:
-                    self.max_locations[1] -= event.xdata
+                if self.subpulses.shape[1] > 0:
+                    self.subpulses[1] -= event.xdata
 
                 # Replot everything
                 current_xlim = self.ax.get_xlim()
@@ -158,41 +141,41 @@ class DriftAnalysisInteractivePlot(DriftAnalysis):
                 self.ax.set_xlim(current_xlim - event.xdata)
                 self.ax.set_ylim(current_ylim)
                 self.ps_image.set_extent(self.calc_image_extent())
-                self.plot_maxima()
+                self.plot_subpulses()
                 self.ax.set_title("")
                 self.fig.canvas.draw()
 
                 # Go back to default mode
                 self.mode = "default"
 
+    def set_default_mode(self):
+
     def on_key_press_event(self, event):
         '''
         m - toggle mode
-        In "maxima" mode:
+        In "subpulse" mode:
             d - delete point selected with mouse
-            S - save all points to file
-            O - load points from file
             c - clear (delete all points)
         In "default" mode:
             S - toggle smoothed pulsestack
             ^ - find local peaks
         '''
         if event.key == "m":
-            if self.mode == "maxima":
+            if self.mode == "subpulse":
                 self.mode = "default"
             elif self.mode == "default":
-                self.mode = "maxima"
+                self.mode = "subpulse"
             return
 
-        if self.mode == "maxima":
+        if self.mode == "subpulse":
             # 'd' = delete selected point
             if event.key == "d":
                 if self.selected is not None:
                     # Delete the selected point from the actual list
-                    self.max_locations = np.delete(self.max_locations, self.selected, axis=-1)
+                    self.subpulses = np.delete(self.subpulses, self.selected, axis=-1)
 
                     # Delete the point from the plot
-                    self.plot_maxima()
+                    self.plot_subpulses()
                     self.selected_plt.set_data([], [])
 
                     # Unselect
@@ -201,6 +184,7 @@ class DriftAnalysisInteractivePlot(DriftAnalysis):
                     # Redraw the figure
                     self.fig.canvas.draw()
 
+            '''
             # 'S' = save all points from file
             if event.key == "S":
                 root = tkinter.Tk()
@@ -208,22 +192,13 @@ class DriftAnalysisInteractivePlot(DriftAnalysis):
                 filename = tkinter.filedialog.asksaveasfilename(filetypes=(("All files", "*.*"),))
                 if filename:
                     self.save_maxima(filename)
+            '''
 
-            # 'O' = Load points from file
-            if event.key == "O":
-                root = tkinter.Tk()
-                root.withdraw()
-                filename = tkinter.filedialog.askopenfilename(filetypes=(("All files", "*.*"),))
-                if filename:
-                    self.load_maxima(filename)
-                    self.plot_maxima()
-                    self.fig.canvas.draw()
-
-            # 'c' = clear (delete all points)
+            # 'c' = clear (delete all subpulses)
             if event.key == 'c':
-                self.max_locations = np.array([[], []])
-                if self.maxima_plt is not None:
-                    self.maxima_plt.set_data([], [])
+                self.subpulses = np.array([[], []])
+                if self.subpulses_plt is not None:
+                    self.subpulses_plt.set_data([], [])
                     self.fig.canvas.draw()
 
         elif self.mode == "default":
@@ -252,13 +227,13 @@ class DriftAnalysisInteractivePlot(DriftAnalysis):
                     self.fig.canvas.draw()
 
             elif event.key == "^":
-                self.ax.set_title("Set threshold on colorbar. Press enter when done.")
+                self.ax.set_title("Set threshold on colorbar. Press enter when done, esc to cancel.")
                 if self.show_smooth == True:
                     self.smoothed_ps.get_local_maxima()
                     self.max_locations = self.smoothed_ps.max_locations
                 else:
                     self.get_local_maxima()
-                self.plot_maxima()
+                self.subpulses_plt.set_data(self.max_locations[1,:], self.max_locations[0,:])
                 self.threshold_line = self.cbar.ax.axhline(self.maxima_threshold, color='g')
                 self.fig.canvas.draw()
                 self.mode = "set_threshold"
@@ -277,8 +252,10 @@ class DriftAnalysisInteractivePlot(DriftAnalysis):
             if event.key == "enter":
                 self.ax.set_title("")
                 self.threshold_line.set_data([], [])
+                self.subpulses = self.max_locations
                 self.fig.canvas.draw()
                 self.mode = "default"
+            elif event.key == "escape":
 
         elif self.mode == "crop":
             if event.key == "enter":
@@ -288,14 +265,14 @@ class DriftAnalysisInteractivePlot(DriftAnalysis):
                 self.ps_image.set_extent(self.calc_image_extent())
                 self.fig.canvas.draw()
                 self.mode = "default"
-            if event.key == "escape":
+            elif event.key == "escape":
                 self.ax.set_title("")
                 self.fig.canvas.draw()
                 self.mode = "default"
 
     def closest_maximum(self, x, y):
-        max_locations_display = self.ax.transData.transform(np.transpose(np.flip(self.max_locations, axis=0)))
-        dists = np.hypot(x - max_locations_display[:,0], y - max_locations_display[:,1])
+        subpulses_display = self.ax.transData.transform(np.transpose(np.flip(self.subpulses, axis=0)))
+        dists = np.hypot(x - subpulses_display[:,0], y - subpulses_display[:,1])
         idx = np.argmin(dists)
         return idx, dists[idx]
 
@@ -306,7 +283,7 @@ class DriftAnalysisInteractivePlot(DriftAnalysis):
 
         # Make it interactive!
         self.plot_image()
-        self.plot_maxima()
+        self.plot_subpulses()
 
         self.cid = self.fig.canvas.mpl_connect('button_press_event', self.on_button_press_event)
         self.cid = self.fig.canvas.mpl_connect('key_press_event', self.on_key_press_event)
@@ -500,8 +477,8 @@ plt.savefig("1274143152_P3_over_time.png")
 if __name__ == '__main__':
     # Load the data
     ps = DriftAnalysisInteractivePlot()
-    #ps.load_json("test.json")
-    ps.load_from_pdv('1274143152_J0024-1932.F.pdv', 'I')
+    ps.load_json("test.json")
+    #ps.load_from_pdv('1274143152_J0024-1932.F.pdv', 'I')
     '''
     ps.set_fiducial_phase(131.836)
 
