@@ -142,13 +142,14 @@ class DriftAnalysisInteractivePlot(DriftAnalysis):
                 self.ax.set_ylim(current_ylim)
                 self.ps_image.set_extent(self.calc_image_extent())
                 self.plot_subpulses()
-                self.ax.set_title("")
-                self.fig.canvas.draw()
 
                 # Go back to default mode
-                self.mode = "default"
+                self.set_default_mode()
 
     def set_default_mode(self):
+        self.ax.set_title("Press 'h' for command list")
+        self.fig.canvas.draw()
+        self.mode = "default"
 
     def on_key_press_event(self, event):
         '''
@@ -248,27 +249,36 @@ class DriftAnalysisInteractivePlot(DriftAnalysis):
                 self.fig.canvas.draw()
                 self.mode = "crop"
 
+            elif event.key == "h":
+                print("Key   Description")
+                print("----------------------------------------------")
+                print("[Standard Matplotlib interface]")
+                print("s     Save plot")
+                print("l     Toggle y-axis logarithmic")
+                print("L     Toggle x-axis logarithmic")
+                print("[Drift analysis]")
+                print("^     Set subpulses to local maxima")
+                print("S     Toggle pulsestack smoothed with Gaussian filter")
+                print("F     Set fiducial point")
+                print("C     Crop pulsestack to current visible image")
+
         elif self.mode == "set_threshold":
             if event.key == "enter":
-                self.ax.set_title("")
                 self.threshold_line.set_data([], [])
                 self.subpulses = self.max_locations
-                self.fig.canvas.draw()
-                self.mode = "default"
+                self.set_default_mode()
             elif event.key == "escape":
+                self.plot_subpulses()
+                self.set_default_mode()
 
         elif self.mode == "crop":
             if event.key == "enter":
-                self.ax.set_title("")
                 self.crop(pulse_range=self.ax.get_ylim(), phase_deg_range=self.ax.get_xlim())
                 self.ps_image.set_data(self.values)
                 self.ps_image.set_extent(self.calc_image_extent())
-                self.fig.canvas.draw()
-                self.mode = "default"
+                self.set_default_mode()
             elif event.key == "escape":
-                self.ax.set_title("")
-                self.fig.canvas.draw()
-                self.mode = "default"
+                self.set_default_mode()
 
     def closest_maximum(self, x, y):
         subpulses_display = self.ax.transData.transform(np.transpose(np.flip(self.subpulses, axis=0)))
@@ -281,10 +291,14 @@ class DriftAnalysisInteractivePlot(DriftAnalysis):
         Start the interactive plot
         '''
 
-        # Make it interactive!
+        # Make the plots
         self.plot_image()
         self.plot_subpulses()
 
+        # Set the mode to "default"
+        self.set_default_mode()
+
+        # Make it interactive!
         self.cid = self.fig.canvas.mpl_connect('button_press_event', self.on_button_press_event)
         self.cid = self.fig.canvas.mpl_connect('key_press_event', self.on_key_press_event)
 
