@@ -192,6 +192,7 @@ class DriftAnalysisInteractivePlot(DriftAnalysis):
                 print("C     Crop pulsestack to current visible image")
                 print("D     Delete a subpulse")
                 print("A     Add a subpulse")
+                print("P     Plot the profile of the current view")
 
             # 'S' = toggle smooth pulsestack
             elif event.key == "S":
@@ -251,6 +252,17 @@ class DriftAnalysisInteractivePlot(DriftAnalysis):
                 self.ax.set_title("Add subpulses by clicking on the pulsestack. Then press enter to confirm, esc to leave add mode.")
                 self.fig.canvas.draw()
                 self.mode = "add_subpulse"
+
+            elif event.key == "P":
+                cropped = self.crop(pulse_range=self.ax.get_ylim(), phase_deg_range=self.ax.get_xlim(), inplace=False)
+                profile = np.mean(cropped.values, axis=0)
+                phases = np.arange(cropped.nbins)*cropped.dphase_deg + cropped.first_phase
+                profile_fig, profile_ax = plt.subplots()
+                profile_ax.plot(phases, profile)
+                profile_ax.set_xlabel("Pulse phase (deg)")
+                profile_ax.set_ylabel("Flux density (a.u.)")
+                profile_ax.set_title("Profile of pulses {} to {}".format(cropped.first_pulse, cropped.first_pulse + (cropped.npulses - 1)*cropped.dpulse))
+                profile_fig.show()
 
         elif self.mode == "set_threshold":
             if event.key == "enter":
