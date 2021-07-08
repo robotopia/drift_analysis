@@ -4,6 +4,7 @@ from numpy.polynomial.polynomial import polyfit, polyval
 from scipy.interpolate import interp1d
 import tkinter
 import tkinter.filedialog
+import tkinter.simpledialog
 import pulsestack
 
 class DriftAnalysis(pulsestack.Pulsestack):
@@ -11,14 +12,20 @@ class DriftAnalysis(pulsestack.Pulsestack):
         self.max_locations = np.array([])
         self.maxima_plt = None
         self.maxima_fmt = 'gx'
+        self.maxima_threshold = 0.0
 
-    def get_local_maxima(self, min_value=None):
+    def get_local_maxima(self, maxima_threshold=None):
+        if maxima_threshold is None:
+            maxima_threshold = self.maxima_threshold
+        else:
+            self.maxima_threshold = maxima_threshold
+
         is_bigger_than_left  = self.values[:,1:-1] >= self.values[:,:-2]
         is_bigger_than_right = self.values[:,1:-1] >= self.values[:,2:]
         is_local_max = np.logical_and(is_bigger_than_left, is_bigger_than_right)
 
-        if min_value is not None:
-            is_local_max = np.logical_and(is_local_max, self.values[:,1:-1] > min_value)
+        if maxima_threshold is not None:
+            is_local_max = np.logical_and(is_local_max, self.values[:,1:-1] > maxima_threshold)
 
         self.max_locations = np.array(np.where(is_local_max)).astype(float)
 
@@ -80,7 +87,18 @@ class DriftAnalysisInteractivePlot(DriftAnalysis):
                     self.selected_plt.set_data([], [])
             
             if self.selected_plt is not None:
-                self.selected_plt.figure.canvas.draw()
+                self.fig.canvas.draw()
+
+        elif self.mode == "set_threshold":
+            if event.inaxes == self.cbar.ax:
+                self.threshold_line.set_data([0, 1], [event.ydata, event.ydata])
+                if self.show_smooth == False:
+                    self.get_local_maxima(maxima_threshold=event.ydata)
+                else:
+                    self.smoothed_ps.get_local_maxima(maxima_threshold=event.ydata)
+                    self.max_locations = self.smoothed_ps.max_locations
+                self.plot_maxima()
+                self.fig.canvas.draw()
 
     def on_key_press_event(self, event):
         '''
@@ -116,7 +134,7 @@ class DriftAnalysisInteractivePlot(DriftAnalysis):
                     self.selected = None
 
                     # Redraw the figure
-                    self.selected_plt.figure.canvas.draw()
+                    self.fig.canvas.draw()
 
             # 'S' = save all points from file
             if event.key == "S":
@@ -134,14 +152,14 @@ class DriftAnalysisInteractivePlot(DriftAnalysis):
                 if filename:
                     self.load_maxima(filename)
                     self.plot_maxima()
-                    self.maxima_plt.figure.canvas.draw()
+                    self.fig.canvas.draw()
 
             # 'c' = clear (delete all points)
             if event.key == 'c':
                 self.max_locations = np.array([])
                 if self.maxima_plt is not None:
                     self.maxima_plt.set_data([], [])
-                    self.maxima_plt.figure.canvas.draw()
+                    self.fig.canvas.draw()
 
         elif self.mode == "pulsestack":
             # 'S' = toggle smooth pulsestack
@@ -159,26 +177,33 @@ class DriftAnalysisInteractivePlot(DriftAnalysis):
                         self.show_smooth = True
                         # Update the colorbar
                         self.cbar.update_normal(self.ps_image)
-                        self.ps_image.figure.canvas.draw()
+                        self.fig.canvas.draw()
 
                 else:
                     self.ps_image.set_data(self.values)
                     self.show_smooth = False
                     # Update the colorbar
                     self.cbar.update_normal(self.ps_image)
-                    self.ps_image.figure.canvas.draw()
+                    self.fig.canvas.draw()
 
             if event.key == "^":
-                root = tkinter.Tk()
-                root.withdraw()
-                min_value = tkinter.simpledialog.askfloat("Min threshold", "Input minimum threshold for maxima", parent=root)
+                self.ax.set_title("Set threshold on colorbar. Press enter when done.")
                 if self.show_smooth == True:
-                    self.smoothed_ps.get_local_maxima(min_value=min_value)
+                    self.smoothed_ps.get_local_maxima()
                     self.max_locations = self.smoothed_ps.max_locations
                 else:
-                    self.get_local_maxima(min_value=min_value)
+                    self.get_local_maxima()
                 self.plot_maxima()
-                self.maxima_plt.figure.canvas.draw()
+                self.threshold_line = self.cbar.ax.axhline(self.maxima_threshold, color='g')
+                self.fig.canvas.draw()
+                self.mode = "set_threshold"
+
+        elif self.mode == "set_threshold":
+            if event.key == "enter":
+                self.ax.set_title("")
+                self.threshold_line.set_data([], [])
+                self.fig.canvas.draw()
+                self.mode = "pulsestack"
 
     def closest_maximum(self, x, y):
         max_locations_display = self.ax.transData.transform(np.transpose(np.flip(self.max_locations, axis=0)))
@@ -193,8 +218,8 @@ class DriftAnalysisInteractivePlot(DriftAnalysis):
 
         # Make it interactive!
         self.plot_image()
-        self.cid = self.ps_image.figure.canvas.mpl_connect('button_press_event', self.on_button_press_event)
-        self.cid = self.ps_image.figure.canvas.mpl_connect('key_press_event', self.on_key_press_event)
+        self.cid = self.fig.canvas.mpl_connect('button_press_event', self.on_button_press_event)
+        self.cid = self.fig.canvas.mpl_connect('key_press_event', self.on_key_press_event)
 
 
 '''
@@ -398,7 +423,7 @@ if __name__ == '__main__':
     smoothed_ps = ps.smooth_with_gaussian(kernel_sigma, inplace=False)
 
     # Find the local maxima
-    smoothed_ps.get_local_maxima(min_value=0.8*sigma)
+    smoothed_ps.get_local_maxima(maxima_threshold=0.8*sigma)
 
     '''
     ps.start()
