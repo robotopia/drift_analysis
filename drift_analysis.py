@@ -90,6 +90,11 @@ class DriftAnalysisInteractivePlot(DriftAnalysis):
         self.smoothed_ps  = None
         self.show_smooth  = False
 
+    def deselect(self):
+        self.selected = None
+        if self.selected_plt is not None:
+            self.selected_plt.set_data([], [])
+
     def on_button_press_event(self, event):
         if self.mode == "delete_subpulse":
             idx, dist = self.closest_maximum(event.x, event.y)
@@ -110,6 +115,20 @@ class DriftAnalysisInteractivePlot(DriftAnalysis):
             
             if self.selected_plt is not None:
                 self.fig.canvas.draw()
+
+        elif self.mode == "add_subpulse":
+            # Snap to nearest pulse, but let phase be continuous
+            pulse_bin = np.round(self.get_pulse_bin(event.ydata))
+            pulse = self.first_pulse + pulse_bin*self.dpulse
+            phase = event.xdata
+            self.selected = np.array([pulse, phase])
+
+            if self.selected_plt is None:
+                self.selected_plt, = self.ax.plot([self.selected[1]], [self.selected[0]], 'wo')
+            else:
+                self.selected_plt.set_data(np.flip(self.selected))
+
+            self.fig.canvas.draw()
 
         elif self.mode == "set_threshold":
             if event.inaxes == self.cbar.ax:
@@ -148,67 +167,31 @@ class DriftAnalysisInteractivePlot(DriftAnalysis):
                 self.set_default_mode()
 
     def set_default_mode(self):
-        self.ax.set_title("Press 'h' for command list")
+        self.ax.set_title("Press (capital) 'H' for command list")
         self.fig.canvas.draw()
         self.mode = "default"
 
     def on_key_press_event(self, event):
 
-        if self.mode == "delete_subpulse":
-            # 'd' = delete selected point
-            if event.key == "enter":
-                if self.selected is not None:
-                    # Delete the selected point from the actual list
-                    self.subpulses = np.delete(self.subpulses, self.selected, axis=-1)
+        if self.mode == "default":
 
-                    # Delete the point from the plot
-                    self.plot_subpulses()
-                    self.selected_plt.set_data([], [])
-
-                    # Unselect
-                    self.selected = None
-
-                    # Redraw the figure
-                    self.fig.canvas.draw()
-
-            elif event.key == "escape":
-                self.selected = None
-                if self.selected_plt is not None:
-                    self.selected_plt.set_data([], [])
-                self.set_default_mode()
-
-            '''
-            # 'S' = save all points from file
-            if event.key == "S":
-                root = tkinter.Tk()
-                root.withdraw()
-                filename = tkinter.filedialog.asksaveasfilename(filetypes=(("All files", "*.*"),))
-                if filename:
-                    self.save_maxima(filename)
-            '''
-
-            # 'c' = clear (delete all subpulses)
-            if event.key == 'c':
-                self.subpulses = np.array([[], []])
-                if self.subpulses_plt is not None:
-                    self.subpulses_plt.set_data([], [])
-                    self.fig.canvas.draw()
-
-        elif self.mode == "default":
-
-            if event.key == "h":
+            if event.key == "H":
                 print("Key   Description")
                 print("----------------------------------------------")
                 print("[Standard Matplotlib interface]")
+                print("h     Go 'home' (default view)")
                 print("s     Save plot")
                 print("l     Toggle y-axis logarithmic")
                 print("L     Toggle x-axis logarithmic")
+                print("q     Quit")
                 print("[Drift analysis]")
+                print("H     Prints this help")
                 print("^     Set subpulses to local maxima")
                 print("S     Toggle pulsestack smoothed with Gaussian filter")
                 print("F     Set fiducial point")
                 print("C     Crop pulsestack to current visible image")
-                print("d     Delete a subpulse")
+                print("D     Delete a subpulse")
+                print("A     Add a subpulse")
 
             # 'S' = toggle smooth pulsestack
             elif event.key == "S":
@@ -257,10 +240,17 @@ class DriftAnalysisInteractivePlot(DriftAnalysis):
                 self.fig.canvas.draw()
                 self.mode = "crop"
 
-            elif event.key == "d":
+            elif event.key == "D":
+                self.deselect()
                 self.ax.set_title("Select a subpulse to delete. Then press enter to confirm, esc to leave delete mode.")
                 self.fig.canvas.draw()
                 self.mode = "delete_subpulse"
+
+            elif event.key == "A":
+                self.deselect()
+                self.ax.set_title("Add subpulses by clicking on the pulsestack. Then press enter to confirm, esc to leave add mode.")
+                self.fig.canvas.draw()
+                self.mode = "add_subpulse"
 
         elif self.mode == "set_threshold":
             if event.key == "enter":
@@ -280,6 +270,47 @@ class DriftAnalysisInteractivePlot(DriftAnalysis):
                 self.ps_image.set_extent(self.calc_image_extent())
                 self.set_default_mode()
             elif event.key == "escape":
+                self.set_default_mode()
+
+        elif self.mode == "delete_subpulse":
+            if event.key == "enter":
+                if self.selected is not None:
+                    # Delete the selected point from the actual list
+                    self.subpulses = np.delete(self.subpulses, self.selected, axis=-1)
+
+                    # Delete the point from the plot
+                    self.plot_subpulses()
+                    self.selected_plt.set_data([], [])
+
+                    # Unselect
+                    self.selected = None
+
+                    # Redraw the figure
+                    self.fig.canvas.draw()
+
+            elif event.key == "escape":
+                self.deselect()
+                self.set_default_mode()
+
+            '''
+            # 'S' = save all points from file
+            if event.key == "S":
+                root = tkinter.Tk()
+                root.withdraw()
+                filename = tkinter.filedialog.asksaveasfilename(filetypes=(("All files", "*.*"),))
+                if filename:
+                    self.save_maxima(filename)
+            '''
+
+        elif self.mode == "add_subpulse":
+            if event.key == "enter":
+                self.subpulses = np.hstack((self.subpulses, [[self.selected[0]],[self.selected[1]]]))
+                self.plot_subpulses()
+                self.deselect()
+                self.fig.canvas.draw()
+
+            elif event.key == "escape":
+                self.deselect()
                 self.set_default_mode()
 
     def closest_maximum(self, x, y):
