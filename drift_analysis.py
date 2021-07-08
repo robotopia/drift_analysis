@@ -6,6 +6,7 @@ import tkinter
 import tkinter.filedialog
 import tkinter.simpledialog
 import json
+import bisect
 import pulsestack
 
 class DriftAnalysis(pulsestack.Pulsestack):
@@ -14,6 +15,8 @@ class DriftAnalysis(pulsestack.Pulsestack):
         self.subpulses_plt = None
         self.subpulses_fmt = 'gx'
         self.maxima_threshold = 0.0
+        self.drift_mode_boundaries = []
+        self.dm_boundary_plt = None
 
     def get_local_maxima(self, maxima_threshold=None):
         if maxima_threshold is None:
@@ -51,6 +54,7 @@ class DriftAnalysis(pulsestack.Pulsestack):
                 "subpulses_phase":     list(self.subpulses[1]),
                 "maxima_threshold":    self.maxima_threshold,
                 "subpulses_fmt":       self.subpulses_fmt,
+                "drift_mode_boundaries": self.drift_mode_boundaries,
                 "values":              list(self.values.flatten())
                 }
         with open(jsonfile, "w") as f:
@@ -72,6 +76,7 @@ class DriftAnalysis(pulsestack.Pulsestack):
         self.subpulses        = np.array([drift_dict["subpulses_pulse"], drift_dict["subpulses_phase"]])
         self.maxima_threshold = drift_dict["maxima_threshold"]
         self.subpulses_fmt    = drift_dict["subpulses_fmt"]
+        self.drift_mode_boundaries = drift_dict["drift_mode_boundaries"]
         self.values           = np.reshape(drift_dict["values"], (self.npulses, self.nbins))
 
     def plot_subpulses(self, **kwargs):
@@ -80,12 +85,22 @@ class DriftAnalysis(pulsestack.Pulsestack):
         else:
             self.subpulses_plt.set_data(self.subpulses[1,:], self.subpulses[0,:])
 
+    def plot_drift_mode_boundaries(self):
+        xlo = self.first_phase
+        xhi = self.first_phase + self.nbins*self.dphase_deg
+
+        if self.dm_boundary_plt is not None:
+            segments = np.array([[[xlo, y], [xhi, y]] for y in self.drift_mode_boundaries])
+            self.dm_boundary_plt.set_segments(segments)
+        else:
+            self.dm_boundary_plt = self.ax.hlines(self.drift_mode_boundaries, xlo, xhi, colors=["k"], linestyles='dashed')
+
 class DriftAnalysisInteractivePlot(DriftAnalysis):
     def __init__(self):
         super(DriftAnalysisInteractivePlot, self).__init__()
-        self.mode         = "default"
-        self.selected     = None
-        self.selected_plt = None
+        self.mode            = "default"
+        self.selected        = None
+        self.selected_plt    = None
 
         self.smoothed_ps  = None
         self.show_smooth  = False
@@ -127,6 +142,18 @@ class DriftAnalysisInteractivePlot(DriftAnalysis):
                 self.selected_plt, = self.ax.plot([self.selected[1]], [self.selected[0]], 'wo')
             else:
                 self.selected_plt.set_data(np.flip(self.selected))
+
+            self.fig.canvas.draw()
+
+        elif self.mode == "add_drift_mode_boundary":
+            # Snap to nearest "half" pulse
+            pulse_bin = np.round(self.get_pulse_bin(event.ydata) + 0.5) - 0.5
+            self.selected = self.first_pulse + pulse_bin*self.dpulse
+
+            if self.selected_plt is None:
+                self.selected_plt = self.ax.axhline(self.selected, color="w")
+            else:
+                self.selected_plt.set_data([[0, 1], [self.selected, self.selected]])
 
             self.fig.canvas.draw()
 
@@ -194,6 +221,7 @@ class DriftAnalysisInteractivePlot(DriftAnalysis):
                 print("A     Add a subpulse")
                 print("P     Plot the profile of the current view")
                 print("T     Plot the LRFS of the current view")
+                print("/     Add a drift mode boundary")
 
             # 'S' = toggle smooth pulsestack
             elif event.key == "S":
@@ -253,6 +281,12 @@ class DriftAnalysisInteractivePlot(DriftAnalysis):
                 self.ax.set_title("Add subpulses by clicking on the pulsestack. Then press enter to confirm, esc to leave add mode.")
                 self.fig.canvas.draw()
                 self.mode = "add_subpulse"
+
+            elif event.key == "/":
+                self.deselect()
+                self.ax.set_title("Add drift mode boundaries by clicking on the pulsestack. Then press enter to confirm, esc to leave add mode.")
+                self.fig.canvas.draw()
+                self.mode = "add_drift_mode_boundary"
 
             elif event.key == "P":
                 cropped = self.crop(pulse_range=self.ax.get_ylim(), phase_deg_range=self.ax.get_xlim(), inplace=False)
@@ -334,9 +368,32 @@ class DriftAnalysisInteractivePlot(DriftAnalysis):
 
         elif self.mode == "add_subpulse":
             if event.key == "enter":
-                self.subpulses = np.hstack((self.subpulses, [[self.selected[0]],[self.selected[1]]]))
-                self.plot_subpulses()
+                if self.selected is not None:
+                    self.subpulses = np.hstack((self.subpulses, [[self.selected[0]],[self.selected[1]]]))
+                    self.plot_subpulses()
                 self.deselect()
+                self.fig.canvas.draw()
+
+            elif event.key == "escape":
+                self.deselect()
+                self.set_default_mode()
+
+        elif self.mode == "add_drift_mode_boundary":
+            if event.key == "enter":
+                if self.selected is None:
+                    return
+
+                bisect.insort(self.drift_mode_boundaries, self.selected)
+
+                xlim = self.ax.get_xlim()
+                ylim = self.ax.get_ylim()
+
+                self.plot_drift_mode_boundaries()
+                self.deselect()
+
+                self.ax.set_xlim(xlim)
+                self.ax.set_ylim(ylim)
+
                 self.fig.canvas.draw()
 
             elif event.key == "escape":
@@ -357,6 +414,7 @@ class DriftAnalysisInteractivePlot(DriftAnalysis):
         # Make the plots
         self.plot_image()
         self.plot_subpulses()
+        self.plot_drift_mode_boundaries()
 
         # Set the mode to "default"
         self.set_default_mode()
