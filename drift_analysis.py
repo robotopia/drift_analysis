@@ -222,6 +222,7 @@ class DriftAnalysisInteractivePlot(DriftAnalysis):
                 print("P     Plot the profile of the current view")
                 print("T     Plot the LRFS of the current view")
                 print("/     Add a drift mode boundary")
+                print("?     Delete a drift mode boundary")
 
             # 'S' = toggle smooth pulsestack
             elif event.key == "S":
@@ -272,21 +273,27 @@ class DriftAnalysisInteractivePlot(DriftAnalysis):
 
             elif event.key == "D":
                 self.deselect()
-                self.ax.set_title("Select a subpulse to delete. Then press enter to confirm, esc to leave delete mode.")
+                self.ax.set_title("Select a subpulse to delete.\nThen press enter to confirm, esc to leave delete mode.")
                 self.fig.canvas.draw()
                 self.mode = "delete_subpulse"
 
             elif event.key == "A":
                 self.deselect()
-                self.ax.set_title("Add subpulses by clicking on the pulsestack. Then press enter to confirm, esc to leave add mode.")
+                self.ax.set_title("Add subpulses by clicking on the pulsestack.\nThen press enter to confirm, esc to leave add mode.")
                 self.fig.canvas.draw()
                 self.mode = "add_subpulse"
 
             elif event.key == "/":
                 self.deselect()
-                self.ax.set_title("Add drift mode boundaries by clicking on the pulsestack. Then press enter to confirm, esc to leave add mode.")
+                self.ax.set_title("Add drift mode boundaries by clicking on the pulsestack.\nThen press enter to confirm, esc to leave add mode.")
                 self.fig.canvas.draw()
                 self.mode = "add_drift_mode_boundary"
+
+            elif event.key == "?":
+                self.deselect()
+                self.ax.set_title("Delete drift mode boundaries by clicking on the pulsestack.\nThen press enter to confirm, esc to leave delete mode.")
+                self.fig.canvas.draw()
+                self.mode = "delete_drift_mode_boundary"
 
             elif event.key == "P":
                 cropped = self.crop(pulse_range=self.ax.get_ylim(), phase_deg_range=self.ax.get_xlim(), inplace=False)
@@ -344,10 +351,28 @@ class DriftAnalysisInteractivePlot(DriftAnalysis):
 
                     # Delete the point from the plot
                     self.plot_subpulses()
-                    self.selected_plt.set_data([], [])
 
                     # Unselect
-                    self.selected = None
+                    self.deselect()
+
+                    # Redraw the figure
+                    self.fig.canvas.draw()
+
+            elif event.key == "escape":
+                self.deselect()
+                self.set_default_mode()
+
+        elif self.mode == "delete_drift_mode_boundary":
+            if event.key == "enter":
+                if self.selected is not None:
+                    # Delete the selected boundary from the actual list
+                    self.drift_mode_boundaries = np.delete(self.drift_mode_boundaries, self.selected)
+
+                    # Delete the boundary line from the plot
+                    self.plot_drift_mode_boundaries()
+
+                    # Deselect
+                    self.deselect()
 
                     # Redraw the figure
                     self.fig.canvas.draw()
