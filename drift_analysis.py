@@ -12,6 +12,8 @@ import pulsestack
 
 class DriftAnalysis(pulsestack.Pulsestack):
     def __init__(self):
+        self.fig = None
+        self.ax  = None
         self.subpulses = np.array([[], []])
         self.subpulses_plt = None
         self.subpulses_fmt = 'gx'
@@ -46,8 +48,6 @@ class DriftAnalysis(pulsestack.Pulsestack):
 
         if jsonfile is None:
             jsonfile = self.jsonfile
-        else:
-            self.jsonfile = jsonfile
 
         # If jsonfile is STILL unspecified, open file dialog box
         if jsonfile is None:
@@ -78,6 +78,8 @@ class DriftAnalysis(pulsestack.Pulsestack):
 
         with open(jsonfile, "w") as f:
             json.dump(drift_dict, f)
+
+        self.jsonfile = jsonfile
 
     def load_json(self, jsonfile=None):
 
@@ -260,6 +262,8 @@ class DriftAnalysisInteractivePlot(DriftAnalysis):
                 print("q     Quit")
                 print("[Drift analysis]")
                 print("H     Prints this help")
+                print("j     Save to json file")
+                print("J     'Save as' to json file")
                 print("^     Set subpulses to local maxima")
                 print("S     Toggle pulsestack smoothed with Gaussian filter")
                 print("F     Set fiducial point")
@@ -271,7 +275,22 @@ class DriftAnalysisInteractivePlot(DriftAnalysis):
                 print("/     Add a drift mode boundary")
                 print("?     Delete a drift mode boundary")
 
-            # 'S' = toggle smooth pulsestack
+            elif event.key == "j":
+                self.save_json()
+
+                if self.fig is not None:
+                    self.fig.canvas.set_window_title(self.jsonfile)
+
+
+            elif event.key == "J":
+                old_jsonfile = self.jsonfile
+                self.jsonfile = None
+                self.save_json()
+                if self.jsonfile is None:
+                    self.jsonfile = old_jsonfile
+                if self.fig is not None:
+                    self.fig.canvas.set_window_title(self.jsonfile)
+
             elif event.key == "S":
                 if self.smoothed_ps is None:
                     self.show_smooth = False
@@ -505,6 +524,12 @@ class DriftAnalysisInteractivePlot(DriftAnalysis):
         self.cid = self.fig.canvas.mpl_connect('button_press_event', self.on_button_press_event)
         self.cid = self.fig.canvas.mpl_connect('key_press_event', self.on_key_press_event)
 
+        # Set the window title to the json filename
+        if self.jsonfile is not None:
+            self.fig.canvas.set_window_title(self.jsonfile)
+        else:
+            self.fig.canvas.set_window_title("[Unsaved pulsestack]")
+
         # Show the plot
         plt.show()
 
@@ -623,30 +648,19 @@ P2 = np.dot(P3, P3)/(P3.T @ inv_dr)
 
 
 if __name__ == '__main__':
-    # Load the data
+    # Start an interactive plot instance
     ps = DriftAnalysisInteractivePlot()
-    ps.load_json(sys.argv[1])
-    #ps.load_from_pdv('1274143152_J0024-1932.F.pdv', 'I')
-    '''
-    ps.set_fiducial_phase(131.836)
 
-    # Characterise the noise (in an off-pulse region)
-    off_pulse_ps = ps.crop(phase_deg_range=[None, -20], inplace=False)
-    sigma = np.std(off_pulse_ps.values)
+    # Load the data
+    # If one argument is given, assume it is in the custom saved (json) format
+    if len(sys.argv) == 2:
+        ps.load_json(sys.argv[1])
+    # Otherwise, assume the first argument is a pdv file, and the second is a stokes parameter
+    else:
+        pdvfile = sys.argv[1]
+        stokes = sys.argv[2]
+        ps.load_from_pdv(pdvfile, stokes)
 
-    # Crop to just the central 40 deg
-    ps.crop(phase_deg_range=[-20, 20])
-    '''
-
-    '''
-    # Smooth pulses with a Gaussian filter
-    kernel_sigma = 1.75 # deg
-    smoothed_ps = ps.smooth_with_gaussian(kernel_sigma, inplace=False)
-
-    # Find the local maxima
-    smoothed_ps.get_local_maxima(maxima_threshold=0.8*sigma)
-
-    '''
+    # Initiate the interactive plots
     ps.start()
-    ps.save_json()
 
