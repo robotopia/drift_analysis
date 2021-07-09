@@ -475,7 +475,7 @@ class DriftAnalysisInteractivePlot(DriftAnalysis):
             elif event.key == "j":
                 self.save_json()
 
-                if self.fig is not None:
+                if self.fig is not None and self.jsonfile is not None:
                     self.fig.canvas.set_window_title(self.jsonfile)
 
 
@@ -639,6 +639,8 @@ class DriftAnalysisInteractivePlot(DriftAnalysis):
                 self.threshold_line.set_data([], [])
                 self.subpulses.delete_all_subpulses()
                 self.subpulses.add_subpulses(self.max_locations[1], self.max_locations[0])
+                if self.jsonfile is not None:
+                    self.fig.canvas.set_window_title(self.jsonfile + "*")
                 self.set_default_mode()
             elif event.key == "escape":
                 self.threshold_line.set_data([], [])
@@ -651,6 +653,8 @@ class DriftAnalysisInteractivePlot(DriftAnalysis):
                 self.crop(pulse_range=self.ax.get_ylim(), phase_deg_range=self.ax.get_xlim())
                 self.ps_image.set_data(self.values)
                 self.ps_image.set_extent(self.calc_image_extent())
+                if self.jsonfile is not None:
+                    self.fig.canvas.set_window_title(self.jsonfile + "*")
                 self.set_default_mode()
             elif event.key == "escape":
                 self.set_default_mode()
@@ -669,6 +673,8 @@ class DriftAnalysisInteractivePlot(DriftAnalysis):
                     self.deselect()
 
                     # Redraw the figure
+                    if self.jsonfile is not None:
+                        self.fig.canvas.set_window_title(self.jsonfile + "*")
                     self.fig.canvas.draw()
 
             elif event.key == "escape":
@@ -689,6 +695,8 @@ class DriftAnalysisInteractivePlot(DriftAnalysis):
                     self.deselect()
 
                     # Redraw the figure
+                    if self.jsonfile is not None:
+                        self.fig.canvas.set_window_title(self.jsonfile + "*")
                     self.fig.canvas.draw()
 
             elif event.key == "escape":
@@ -702,6 +710,8 @@ class DriftAnalysisInteractivePlot(DriftAnalysis):
                     self.subpulses.add_subpulses([self.selected[1]], [self.selected[0]])
                     self.plot_subpulses()
                 self.deselect()
+                if self.jsonfile is not None:
+                    self.fig.canvas.set_window_title(self.jsonfile + "*")
                 self.fig.canvas.draw()
 
             elif event.key == "escape":
@@ -725,6 +735,8 @@ class DriftAnalysisInteractivePlot(DriftAnalysis):
                 self.ax.set_xlim(xlim)
                 self.ax.set_ylim(ylim)
 
+                if self.jsonfile is not None:
+                    self.fig.canvas.set_window_title(self.jsonfile + "*")
                 self.fig.canvas.draw()
 
             elif event.key == "escape":
