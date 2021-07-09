@@ -110,6 +110,50 @@ class Subpulses:
 
         return driftrate, yintercept
 
+class DriftSequences:
+    def __init__(self, ps):
+        self.ps         = ps  # Reference to pulsestack
+        self.boundaries = []  # Contains indexes of pulse numbers preceding the boundary
+
+    def has_boundary(self, pulse_idx):
+        if pulse_idx in self.boundaries:
+            return True
+        else:
+            return False
+
+    def add_boundary(self, pulse_idx):
+        if not self.has_boundary(pulse_idx):
+            bisect.insort(self.boundaries, pulse_idx)
+
+    def delete_boundaries(self, boundary_idxs):
+        self.boundaries = np.delete(self.boundaries, boundary_idxs)
+
+    def get_bounding_pulse_idxs(self, sequence_idx):
+        '''
+        Returns the first and last pulses indexes in this sequence
+        '''
+        if sequence_idx < 0:
+            sequence_idx = len(self.boundaries) + 1 + sequence_idx
+
+        if sequence_idx == 0:
+            first_idx = 0
+        else:
+            first_idx = self.boundaries[sequence_idx - 1] + 1
+
+        if sequence_idx == len(self.boundaries) + 1:
+            last_idx = self.ps.npulses - 1
+        else:
+            last_idx = self.boundaries[sequence_idx]
+
+        return first_idx, last_idx
+
+    def get_pulses(self, boundary_idxs=None):
+        if boundary_idxs is None:
+            mid_bins = np.array(self.boundaries) + 0.5
+        else:
+            mid_bins = np.array(self.boundaries)[boundary_idxs] + 0.5
+        return self.ps.get_pulse_from_bin(mid_bins)
+
 class DriftAnalysis(pulsestack.Pulsestack):
     def __init__(self):
         self.fig = None
@@ -118,7 +162,7 @@ class DriftAnalysis(pulsestack.Pulsestack):
         self.subpulses_plt = None
         self.subpulses_fmt = 'gx'
         self.maxima_threshold = 0.0
-        self.drift_mode_boundaries = []
+        self.drift_sequences = DriftSequences(super())
         self.dm_boundary_plt = None
         self.jsonfile = None
 
@@ -176,7 +220,7 @@ class DriftAnalysis(pulsestack.Pulsestack):
 
                 "maxima_threshold":    self.maxima_threshold,
                 "subpulses_fmt":       self.subpulses_fmt,
-                "drift_mode_boundaries": list(self.drift_mode_boundaries),
+                "drift_mode_boundaries": self.drift_sequences.boundaries,
                 "values":              list(self.values.flatten())
                 }
 
@@ -211,7 +255,7 @@ class DriftAnalysis(pulsestack.Pulsestack):
 
         self.maxima_threshold = drift_dict["maxima_threshold"]
         self.subpulses_fmt    = drift_dict["subpulses_fmt"]
-        self.drift_mode_boundaries = np.array(drift_dict["drift_mode_boundaries"])
+        self.drift_sequences.boundaries = drift_dict["drift_mode_boundaries"]
         self.values           = np.reshape(drift_dict["values"], (self.npulses, self.nbins))
 
         self.jsonfile = jsonfile
@@ -226,15 +270,16 @@ class DriftAnalysis(pulsestack.Pulsestack):
         xlo = self.first_phase
         xhi = self.first_phase + self.nbins*self.dphase_deg
 
+        ys = self.drift_sequences.get_pulses()
         if self.dm_boundary_plt is not None:
-            segments = np.array([[[xlo, y], [xhi, y]] for y in self.drift_mode_boundaries])
+            segments = np.array([[[xlo, y], [xhi, y]] for y in ys])
             self.dm_boundary_plt.set_segments(segments)
         else:
-            self.dm_boundary_plt = self.ax.hlines(self.drift_mode_boundaries, xlo, xhi, colors=["k"], linestyles='dashed')
+            self.dm_boundary_plt = self.ax.hlines(ys, xlo, xhi, colors=["k"], linestyles='dashed')
 
 class DriftAnalysisInteractivePlot(DriftAnalysis):
     def __init__(self):
-        super(DriftAnalysisInteractivePlot, self).__init__()
+        super().__init__()
         self.mode            = "default"
         self.selected        = None
         self.selected_plt    = None
@@ -277,10 +322,11 @@ class DriftAnalysisInteractivePlot(DriftAnalysis):
                 self.selected = idx
 
             if self.selected is not None:
+                y = self.drift_sequences.get_pulses([self.selected])
                 if self.selected_plt is None:
-                    self.selected_plt = self.ax.axhline(self.drift_mode_boundaries[self.selected], color='w')
+                    self.selected_plt = self.ax.axhline(y, color='w')
                 else:
-                    self.selected_plt.set_data([0, 1], [self.drift_mode_boundaries[self.selected], self.drift_mode_boundaries[self.selected]])
+                    self.selected_plt.set_data([0, 1], [y, y])
             else:
                 self.deselect()
             
@@ -302,18 +348,20 @@ class DriftAnalysisInteractivePlot(DriftAnalysis):
             self.fig.canvas.draw()
 
         elif self.mode == "add_drift_mode_boundary":
-            # Snap to nearest "half" pulse
-            pulse_bin = np.round(self.get_pulse_bin(event.ydata) + 0.5) - 0.5
-            self.selected = self.first_pulse + pulse_bin*self.dpulse
+            # Snap to nearest "previous" pulse
+            pulse_idx = int(np.floor(self.get_pulse_bin(event.ydata) - 0.5))
 
             # Don't let the user add a drift mode boundary that already exists
-            if int(np.floor(self.selected)) in list(np.floor(self.drift_mode_boundaries).astype(int)):
+            if self.drift_sequences.has_boundary(pulse_idx):
                 return
 
+            self.selected = pulse_idx
+            y = self.drift_sequences.ps.get_pulse_from_bin(pulse_idx + 0.5)
+
             if self.selected_plt is None:
-                self.selected_plt = self.ax.axhline(self.selected, color="w")
+                self.selected_plt = self.ax.axhline(y, color="w")
             else:
-                self.selected_plt.set_data([[0, 1], [self.selected, self.selected]])
+                self.selected_plt.set_data([[0, 1], [y, y]])
 
             self.fig.canvas.draw()
 
@@ -374,8 +422,8 @@ class DriftAnalysisInteractivePlot(DriftAnalysis):
                 print("q     Quit")
                 print("[Drift analysis]")
                 print("H     Prints this help")
-                print("j     Save to json file")
-                print("J     'Save as' to json file")
+                print("j     Save analysis to (json) file")
+                print("J     'Save as' to (json) file")
                 print("^     Set subpulses to local maxima")
                 print("S     Toggle pulsestack smoothed with Gaussian filter")
                 print("F     Set fiducial point")
@@ -387,6 +435,7 @@ class DriftAnalysisInteractivePlot(DriftAnalysis):
                 print("/     Add a drift mode boundary")
                 print("?     Delete a drift mode boundary")
                 print("v     Toggle visibility of plot feature")
+                print("D     Set view to selected drift sequence")
 
             elif event.key == "j":
                 self.save_json()
@@ -576,7 +625,7 @@ class DriftAnalysisInteractivePlot(DriftAnalysis):
                 if self.selected is not None:
                     # Delete the selected boundary from the actual list
                     # Here, "selected" refers to the idx of drift_mode_boundaries[]
-                    self.drift_mode_boundaries = np.delete(self.drift_mode_boundaries, self.selected)
+                    self.drift_sequences.delete_boundaries([self.selected])
 
                     # Delete the boundary line from the plot
                     self.plot_drift_mode_boundaries()
@@ -609,10 +658,8 @@ class DriftAnalysisInteractivePlot(DriftAnalysis):
                 if self.selected is None:
                     return
 
-                # Here, "selected" refers to the y-value of the drift mode boundary
-                temp_list = list(self.drift_mode_boundaries)
-                bisect.insort(temp_list, self.selected)
-                self.drift_mode_boundaries = np.array(temp_list)
+                # Here, "selected" refers to the pulse_idx of the drift mode boundary
+                self.drift_sequences.add_boundary(self.selected)
 
                 xlim = self.ax.get_xlim()
                 ylim = self.ax.get_ylim()
@@ -630,7 +677,7 @@ class DriftAnalysisInteractivePlot(DriftAnalysis):
                 self.set_default_mode()
 
     def closest_drift_mode_boundary(self, y):
-        dm_boundary_display = self.ax.transData.transform([[0,pulse] for pulse in self.drift_mode_boundaries])
+        dm_boundary_display = self.ax.transData.transform([[0,y] for y in self.drift_sequences.get_pulses()])
         dists = np.abs(y - dm_boundary_display[:,1])
         idx = np.argmin(dists)
         return idx, dists[idx]
