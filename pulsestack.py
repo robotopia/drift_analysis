@@ -60,8 +60,8 @@ class Pulsestack:
         if inrange == True:
             if phase_deg_bin < 0:
                 phase_deg_bin = 0
-            elif phase_deg_bin > self.values.shape[0] - 1:
-                phase_deg_bin = self.values.shape[0] - 1
+            elif phase_deg_bin > self.values.shape[1] - 1:
+                phase_deg_bin = self.values.shape[1] - 1
         return phase_deg_bin
 
     def set_fiducial_phase(self, phase_deg):

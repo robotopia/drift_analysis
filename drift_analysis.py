@@ -367,7 +367,6 @@ class DriftAnalysisInteractivePlot(DriftAnalysis):
                 cropped = self.crop(pulse_range=self.ax.get_ylim(), phase_deg_range=self.ax.get_xlim(), inplace=False)
                 profile = np.mean(cropped.values, axis=0)
                 phases = np.arange(cropped.nbins)*cropped.dphase_deg + cropped.first_phase
-                #print(cropped.calc_image_extent())
                 profile_fig, profile_ax = plt.subplots()
                 profile_ax.plot(phases, profile)
                 profile_ax.set_xlabel("Pulse phase (deg)")
