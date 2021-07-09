@@ -111,8 +111,7 @@ class Subpulses:
         return driftrate, yintercept
 
 class DriftSequences:
-    def __init__(self, ps):
-        self.ps         = ps  # Reference to pulsestack
+    def __init__(self):
         self.boundaries = []  # Contains indexes of pulse numbers preceding the boundary
 
     def has_boundary(self, pulse_idx):
@@ -128,10 +127,13 @@ class DriftSequences:
     def delete_boundaries(self, boundary_idxs):
         self.boundaries = np.delete(self.boundaries, boundary_idxs)
 
-    def get_bounding_pulse_idxs(self, sequence_idx):
+    def get_bounding_pulse_idxs(self, sequence_idx, npulses):
         '''
         Returns the first and last pulses indexes in this sequence
         '''
+        if len(self.boundaries) == 0:
+            return 0, npulses - 1
+
         if sequence_idx < 0:
             sequence_idx = len(self.boundaries) + 1 + sequence_idx
 
@@ -141,18 +143,40 @@ class DriftSequences:
             first_idx = self.boundaries[sequence_idx - 1] + 1
 
         if sequence_idx == len(self.boundaries) + 1:
-            last_idx = self.ps.npulses - 1
+            last_idx = npulses - 1
         else:
             last_idx = self.boundaries[sequence_idx]
 
         return first_idx, last_idx
 
-    def get_pulses(self, boundary_idxs=None):
+    def get_pulse_mid_idxs(self, boundary_idxs=None):
         if boundary_idxs is None:
-            mid_bins = np.array(self.boundaries) + 0.5
+            return np.array(self.boundaries) + 0.5
         else:
-            mid_bins = np.array(self.boundaries)[boundary_idxs] + 0.5
-        return self.ps.get_pulse_from_bin(mid_bins)
+            return np.array(self.boundaries)[boundary_idxs] + 0.5
+
+    def get_sequence_number(self, pulse_idx, npulses):
+        # There are lots of corner cases!
+        # Remember, the first boundary sits between sequences 0 and 1,
+        # and the last sits between sequences n and n+1, where
+        # n = len(self.boundaries) - 1
+        # All the "0.5"s around the place is to make this function give sensible
+        # results when pulse_idx is a fractional value
+        if pulse_idx < -0.5:
+            sequence_number = None
+        elif pulse_idx <= self.boundaries[0] + 0.5:
+            sequence_number = 0
+        elif len(self.boundaries) == 0:
+            sequence_number = 0
+        elif pulse_idx >= npulses - 0.5:
+            sequence_number = None
+        elif pulse_idx > self.boundaries[-1] + 0.5:
+            sequence_number = len(self.boundaries)
+        else:
+            is_no_more_than = pulse_idx <= np.array(self.boundaries) + 0.5
+            sequence_number = np.argwhere(is_no_more_than)[0][0]
+
+        return sequence_number
 
 class DriftAnalysis(pulsestack.Pulsestack):
     def __init__(self):
@@ -162,7 +186,7 @@ class DriftAnalysis(pulsestack.Pulsestack):
         self.subpulses_plt = None
         self.subpulses_fmt = 'gx'
         self.maxima_threshold = 0.0
-        self.drift_sequences = DriftSequences(super())
+        self.drift_sequences = DriftSequences()
         self.dm_boundary_plt = None
         self.jsonfile = None
 
@@ -270,7 +294,7 @@ class DriftAnalysis(pulsestack.Pulsestack):
         xlo = self.first_phase
         xhi = self.first_phase + self.nbins*self.dphase_deg
 
-        ys = self.drift_sequences.get_pulses()
+        ys = self.get_pulse_from_bin(self.drift_sequences.get_pulse_mid_idxs())
         if self.dm_boundary_plt is not None:
             segments = np.array([[[xlo, y], [xhi, y]] for y in ys])
             self.dm_boundary_plt.set_segments(segments)
@@ -322,7 +346,7 @@ class DriftAnalysisInteractivePlot(DriftAnalysis):
                 self.selected = idx
 
             if self.selected is not None:
-                y = self.drift_sequences.get_pulses([self.selected])
+                y = self.get_pulse_from_bin(self.drift_sequences.get_pulse_mid_idxs([self.selected]))
                 if self.selected_plt is None:
                     self.selected_plt = self.ax.axhline(y, color='w')
                 else:
@@ -356,7 +380,7 @@ class DriftAnalysisInteractivePlot(DriftAnalysis):
                 return
 
             self.selected = pulse_idx
-            y = self.drift_sequences.ps.get_pulse_from_bin(pulse_idx + 0.5)
+            y = self.get_pulse_from_bin(pulse_idx + 0.5)
 
             if self.selected_plt is None:
                 self.selected_plt = self.ax.axhline(y, color="w")
@@ -401,6 +425,11 @@ class DriftAnalysisInteractivePlot(DriftAnalysis):
                 # Go back to default mode
                 self.set_default_mode()
 
+        elif self.mode == "zoom_drift_sequence":
+            if event.inaxes == self.ax:
+                pulse_idx = self.get_pulse_bin(event.ydata, inrange=False)
+                self.selected = self.drift_sequences.get_sequence_number(pulse_idx, self.npulses)
+
     def set_default_mode(self):
         self.ax.set_title("Press (capital) 'H' for command list")
         self.fig.canvas.draw()
@@ -435,7 +464,7 @@ class DriftAnalysisInteractivePlot(DriftAnalysis):
                 print("/     Add a drift mode boundary")
                 print("?     Delete a drift mode boundary")
                 print("v     Toggle visibility of plot feature")
-                print("D     Set view to selected drift sequence")
+                print("z     Zoom to selected drift sequence")
 
             elif event.key == "j":
                 self.save_json()
@@ -559,6 +588,26 @@ class DriftAnalysisInteractivePlot(DriftAnalysis):
                 self.fig.canvas.draw()
                 self.mode = "toggle_visibility"
 
+            elif event.key == "z":
+                self.ax.set_title("Select a drift sequence by clicking on the pulsestack.\nPress enter to confirm, esc to cancel.")
+                self.fig.canvas.draw()
+                self.mode = "zoom_drift_sequence"
+
+            elif event.key == "h":
+                # If some other function has explicitly changed the axis limits,
+                # then pressing 'h' will default back to those changed limits.
+                # This is to ensure that it always goes back to the whole
+                # pulsestack
+                extent = self.calc_image_extent()
+
+                xlim = [extent[0], extent[1]]
+                ylim = [extent[2], extent[3]]
+
+                self.ax.set_xlim(xlim)
+                self.ax.set_ylim(ylim)
+
+                self.fig.canvas.draw()
+
         elif self.mode == "toggle_visibility":
             if event.key == ".":
                 if self.subpulses_plt is not None:
@@ -676,8 +725,28 @@ class DriftAnalysisInteractivePlot(DriftAnalysis):
                 self.deselect()
                 self.set_default_mode()
 
+        elif self.mode == "zoom_drift_sequence":
+            if event.key == "enter":
+                if self.selected is None:
+                    return
+
+                # Here, "selected" refers to the drift sequence number
+                first_pulse, last_pulse = self.drift_sequences.get_bounding_pulse_idxs(self.selected, self.npulses)
+
+                # Set the zoom (only in y-direction)
+                ylo = self.get_pulse_from_bin(first_pulse - 0.5)
+                yhi = self.get_pulse_from_bin(last_pulse + 0.5)
+                self.ax.set_ylim([ylo, yhi])
+
+                self.deselect()
+                self.set_default_mode()
+
+            elif event.key == "escape":
+                self.deselect()
+                self.set_default_mode()
+
     def closest_drift_mode_boundary(self, y):
-        dm_boundary_display = self.ax.transData.transform([[0,y] for y in self.drift_sequences.get_pulses()])
+        dm_boundary_display = self.ax.transData.transform([[0,y] for y in self.get_pulse_from_bin(self.drift_sequences.get_pulse_mid_idxs())])
         dists = np.abs(y - dm_boundary_display[:,1])
         idx = np.argmin(dists)
         return idx, dists[idx]
