@@ -46,7 +46,7 @@ class Subpulses:
         self.nsubpulses = self.data.shape[0]
 
     def delete_subpulses(self, delete_idxs):
-        np.delete(self.data, delete_idxs, axis=0)
+        self.data = np.delete(self.data, delete_idxs, axis=0)
         self.nsubpulses = self.data.shape[0]
 
     def delete_all_subpulses(self):
@@ -220,7 +220,7 @@ class DriftAnalysis(pulsestack.Pulsestack):
         if self.subpulses_plt is None:
             self.subpulses_plt, = self.ax.plot(self.subpulses.get_phases(), self.subpulses.get_pulses(), self.subpulses_fmt, **kwargs)
         else:
-            self.subpulses_plt.set_data(self.subpulses.get_phases(), self.subpulses.get_pulses)
+            self.subpulses_plt.set_data(self.subpulses.get_phases(), self.subpulses.get_pulses())
 
     def plot_drift_mode_boundaries(self):
         xlo = self.first_phase
@@ -595,7 +595,7 @@ class DriftAnalysisInteractivePlot(DriftAnalysis):
             if event.key == "enter":
                 # Here, "selected" is [pulse, phase] of new candidate subpulse
                 if self.selected is not None:
-                    self.subpulses.add_subpulses([self.selected[0]], [self.selected[1]])
+                    self.subpulses.add_subpulses([self.selected[1]], [self.selected[0]])
                     self.plot_subpulses()
                 self.deselect()
                 self.fig.canvas.draw()
