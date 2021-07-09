@@ -256,6 +256,7 @@ class DriftAnalysisInteractivePlot(DriftAnalysis):
                 print("----------------------------------------------")
                 print("[Standard Matplotlib interface]")
                 print("h     Go 'home' (default view)")
+                print("f     Make window full screen")
                 print("s     Save plot")
                 print("l     Toggle y-axis logarithmic")
                 print("L     Toggle x-axis logarithmic")
@@ -274,6 +275,7 @@ class DriftAnalysisInteractivePlot(DriftAnalysis):
                 print("T     Plot the LRFS of the current view")
                 print("/     Add a drift mode boundary")
                 print("?     Delete a drift mode boundary")
+                print("v     Toggle visibility of plot feature")
 
             elif event.key == "j":
                 self.save_json()
@@ -389,6 +391,31 @@ class DriftAnalysisInteractivePlot(DriftAnalysis):
                 profile_ax.set_ylabel("cycles per period")
                 profile_ax.set_title("LRFS of pulses {} to {}".format(cropped.first_pulse, cropped.first_pulse + (cropped.npulses - 1)*cropped.dpulse))
                 profile_fig.show()
+
+            elif event.key == "v":
+                self.ax.set_title("Toggle visibility mode. Press escape when finished.\nsubpulses (.), drift mode boundaries (/)")
+                self.fig.canvas.draw()
+                self.mode = "toggle_visibility"
+
+        elif self.mode == "toggle_visibility":
+            if event.key == ".":
+                if self.subpulses_plt is not None:
+                    self.subpulses_plt.set_data([], [])
+                    self.subpulses_plt = None
+                else:
+                    self.plot_subpulses()
+                self.fig.canvas.draw()
+
+            if event.key == "/":
+                if self.dm_boundary_plt is not None:
+                    self.dm_boundary_plt.set_segments(np.empty((0,2)))
+                    self.dm_boundary_plt = None
+                else:
+                    self.plot_drift_mode_boundaries()
+                self.fig.canvas.draw()
+
+            elif event.key == "escape":
+                self.set_default_mode()
 
         elif self.mode == "set_threshold":
             if event.key == "enter":
