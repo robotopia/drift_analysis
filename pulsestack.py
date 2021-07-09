@@ -56,7 +56,7 @@ class Pulsestack:
 
     def get_phase_bin(self, phase_deg, inrange=True):
         # This can return fractional (non-integer) values
-        return (phase_deg - self.first_phase)/self.dphase_deg
+        phase_deg_bin = (phase_deg - self.first_phase)/self.dphase_deg
         if inrange == True:
             if phase_deg_bin < 0:
                 phase_deg_bin = 0

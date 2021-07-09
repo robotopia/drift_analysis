@@ -1,3 +1,4 @@
+import sys
 import numpy as np
 import matplotlib.pyplot as plt
 from numpy.polynomial.polynomial import polyfit, polyval
@@ -17,6 +18,7 @@ class DriftAnalysis(pulsestack.Pulsestack):
         self.maxima_threshold = 0.0
         self.drift_mode_boundaries = []
         self.dm_boundary_plt = None
+        self.jsonfile = None
 
     def get_local_maxima(self, maxima_threshold=None):
         if maxima_threshold is None:
@@ -40,7 +42,23 @@ class DriftAnalysis(pulsestack.Pulsestack):
         self.max_locations[0,:] = self.max_locations[0,:]*self.dpulse + self.first_pulse
         self.max_locations[1,:] = self.max_locations[1,:]*self.dphase_deg + self.first_phase
 
-    def save_json(self, jsonfile):
+    def save_json(self, jsonfile=None):
+
+        if jsonfile is None:
+            jsonfile = self.jsonfile
+        else:
+            self.jsonfile = jsonfile
+
+        # If jsonfile is STILL unspecified, open file dialog box
+        if jsonfile is None:
+            root = tkinter.Tk()
+            root.withdraw()
+            jsonfile = tkinter.filedialog.asksaveasfilename(filetypes=(("All files", "*.*"),))
+
+        # And if THAT still didn't produce a filename, cancel
+        if not jsonfile:
+            return
+
         drift_dict = {
                 "pdvfile":             self.pdvfile,
                 "stokes":              self.stokes,
@@ -54,13 +72,17 @@ class DriftAnalysis(pulsestack.Pulsestack):
                 "subpulses_phase":     list(self.subpulses[1]),
                 "maxima_threshold":    self.maxima_threshold,
                 "subpulses_fmt":       self.subpulses_fmt,
-                "drift_mode_boundaries": self.drift_mode_boundaries,
+                "drift_mode_boundaries": list(self.drift_mode_boundaries),
                 "values":              list(self.values.flatten())
                 }
+
         with open(jsonfile, "w") as f:
             json.dump(drift_dict, f)
 
-    def load_json(self, jsonfile):
+    def load_json(self, jsonfile=None):
+
+        if jsonfile is None:
+            jsonfile = self.jsonfile
 
         with open(jsonfile, "r") as f:
             drift_dict = json.load(f)
@@ -76,8 +98,10 @@ class DriftAnalysis(pulsestack.Pulsestack):
         self.subpulses        = np.array([drift_dict["subpulses_pulse"], drift_dict["subpulses_phase"]])
         self.maxima_threshold = drift_dict["maxima_threshold"]
         self.subpulses_fmt    = drift_dict["subpulses_fmt"]
-        self.drift_mode_boundaries = drift_dict["drift_mode_boundaries"]
+        self.drift_mode_boundaries = np.array(drift_dict["drift_mode_boundaries"])
         self.values           = np.reshape(drift_dict["values"], (self.npulses, self.nbins))
+
+        self.jsonfile = jsonfile
 
     def plot_subpulses(self, **kwargs):
         if self.subpulses_plt is None:
@@ -112,7 +136,7 @@ class DriftAnalysisInteractivePlot(DriftAnalysis):
 
     def on_button_press_event(self, event):
         if self.mode == "delete_subpulse":
-            idx, dist = self.closest_maximum(event.x, event.y)
+            idx, dist = self.closest_subpulse(event.x, event.y)
 
             if dist > 10: # i.e. if mouse click is more than 10 pixels away from the nearest point
                 self.selected = None
@@ -127,6 +151,25 @@ class DriftAnalysisInteractivePlot(DriftAnalysis):
             else:
                 if self.selected_plt is not None:
                     self.selected_plt.set_data([], [])
+            
+            if self.selected_plt is not None:
+                self.fig.canvas.draw()
+
+        elif self.mode == "delete_drift_mode_boundary":
+            idx, dist = self.closest_drift_mode_boundary(event.y)
+
+            if dist > 10: # i.e. if mouse click is more than 10 pixels away from the nearest point
+                self.selected = None
+            else:
+                self.selected = idx
+
+            if self.selected is not None:
+                if self.selected_plt is None:
+                    self.selected_plt = self.ax.axhline(self.drift_mode_boundaries[self.selected], color='w')
+                else:
+                    self.selected_plt.set_data([0, 1], [self.drift_mode_boundaries[self.selected], self.drift_mode_boundaries[self.selected]])
+            else:
+                self.deselect()
             
             if self.selected_plt is not None:
                 self.fig.canvas.draw()
@@ -149,6 +192,10 @@ class DriftAnalysisInteractivePlot(DriftAnalysis):
             # Snap to nearest "half" pulse
             pulse_bin = np.round(self.get_pulse_bin(event.ydata) + 0.5) - 0.5
             self.selected = self.first_pulse + pulse_bin*self.dpulse
+
+            # Don't let the user add a drift mode boundary that already exists
+            if int(np.floor(self.selected)) in list(np.floor(self.drift_mode_boundaries).astype(int)):
+                return
 
             if self.selected_plt is None:
                 self.selected_plt = self.ax.axhline(self.selected, color="w")
@@ -299,6 +346,7 @@ class DriftAnalysisInteractivePlot(DriftAnalysis):
                 cropped = self.crop(pulse_range=self.ax.get_ylim(), phase_deg_range=self.ax.get_xlim(), inplace=False)
                 profile = np.mean(cropped.values, axis=0)
                 phases = np.arange(cropped.nbins)*cropped.dphase_deg + cropped.first_phase
+                #print(cropped.calc_image_extent())
                 profile_fig, profile_ax = plt.subplots()
                 profile_ax.plot(phases, profile)
                 profile_ax.set_xlabel("Pulse phase (deg)")
@@ -347,6 +395,7 @@ class DriftAnalysisInteractivePlot(DriftAnalysis):
             if event.key == "enter":
                 if self.selected is not None:
                     # Delete the selected point from the actual list
+                    # Here, "selected" refers to the idx of subpulses[]
                     self.subpulses = np.delete(self.subpulses, self.selected, axis=-1)
 
                     # Delete the point from the plot
@@ -366,6 +415,7 @@ class DriftAnalysisInteractivePlot(DriftAnalysis):
             if event.key == "enter":
                 if self.selected is not None:
                     # Delete the selected boundary from the actual list
+                    # Here, "selected" refers to the idx of drift_mode_boundaries[]
                     self.drift_mode_boundaries = np.delete(self.drift_mode_boundaries, self.selected)
 
                     # Delete the boundary line from the plot
@@ -381,18 +431,9 @@ class DriftAnalysisInteractivePlot(DriftAnalysis):
                 self.deselect()
                 self.set_default_mode()
 
-            '''
-            # 'S' = save all points from file
-            if event.key == "S":
-                root = tkinter.Tk()
-                root.withdraw()
-                filename = tkinter.filedialog.asksaveasfilename(filetypes=(("All files", "*.*"),))
-                if filename:
-                    self.save_maxima(filename)
-            '''
-
         elif self.mode == "add_subpulse":
             if event.key == "enter":
+                # Here, "selected" is [pulse, phase] of new candidate subpulse
                 if self.selected is not None:
                     self.subpulses = np.hstack((self.subpulses, [[self.selected[0]],[self.selected[1]]]))
                     self.plot_subpulses()
@@ -408,7 +449,10 @@ class DriftAnalysisInteractivePlot(DriftAnalysis):
                 if self.selected is None:
                     return
 
-                bisect.insort(self.drift_mode_boundaries, self.selected)
+                # Here, "selected" refers to the y-value of the drift mode boundary
+                temp_list = list(self.drift_mode_boundaries)
+                bisect.insort(temp_list, self.selected)
+                self.drift_mode_boundaries = np.array(temp_list)
 
                 xlim = self.ax.get_xlim()
                 ylim = self.ax.get_ylim()
@@ -425,7 +469,13 @@ class DriftAnalysisInteractivePlot(DriftAnalysis):
                 self.deselect()
                 self.set_default_mode()
 
-    def closest_maximum(self, x, y):
+    def closest_drift_mode_boundary(self, y):
+        dm_boundary_display = self.ax.transData.transform([[0,pulse] for pulse in self.drift_mode_boundaries])
+        dists = np.abs(y - dm_boundary_display[:,1])
+        idx = np.argmin(dists)
+        return idx, dists[idx]
+
+    def closest_subpulse(self, x, y):
         subpulses_display = self.ax.transData.transform(np.transpose(np.flip(self.subpulses, axis=0)))
         dists = np.hypot(x - subpulses_display[:,0], y - subpulses_display[:,1])
         idx = np.argmin(dists)
@@ -438,8 +488,15 @@ class DriftAnalysisInteractivePlot(DriftAnalysis):
 
         # Make the plots
         self.plot_image()
+
+        xlim = self.ax.get_xlim()
+        ylim = self.ax.get_ylim()
+
         self.plot_subpulses()
         self.plot_drift_mode_boundaries()
+
+        self.ax.set_xlim(xlim)
+        self.ax.set_ylim(ylim)
 
         # Set the mode to "default"
         self.set_default_mode()
@@ -562,82 +619,13 @@ P3 = np.delete(P3, delete_idxs)
 inv_dr = np.delete(inv_dr, delete_idxs)
 
 P2 = np.dot(P3, P3)/(P3.T @ inv_dr)
-
-############
-# PLOTTING #
-############
-
-plt.figure(figsize=(10,40))
-
-# Show where the drift band boundaries are
-for p in driftband_boundary_points:
-    plt.plot(p[:,0], p[:,1], 'k')
-
-# Show the linear fits to the driftbands
-x = np.array([10, 90])
-for lfit in linear_fits:
-    plt.plot(x, polyval(x, lfit), 'y--')
-
-# Stacked pulses (lines)
-#for pulse in pulses:
-#    plt.plot(pulsestack[pulse]*5+pulse)
-
-# Profile:
-#plt.plot(np.sum(pulsestack, axis=0))
-
-plt.xlabel("Rotation phase (in pixels)")
-plt.ylabel("Pulse number")
-plt.ylim([-0.5,npulses-0.5])
-plt.tight_layout()
-plt.savefig("1274143152_linfits.png")
-
-# FIGURE 2
-plt.figure(2)
-#plt.clf()
-
-# Plot P3 vs inverse driftrate
-plt.plot(P3, inv_dr, 'o')
-plotP3 = np.array([np.min(P3), np.max(P3)])
-ploty = plotP3/P2
-plt.plot(plotP3, ploty, 'k--')
-plt.xlabel("P_3 (P_1)")
-plt.ylabel("1/Driftrate (pulses per deg)")
-plt.title("P_2 = {:.1f} deg".format(np.abs(P2)))
-
-# Plot P3phases
-#plt.plot(nonempty_pulses, P3phases, '-o')
-#plt.xlabel("Pulse number")
-#plt.ylabel("P3 phase")
-
-plt.savefig("1274143152_P3_vs_dr.png")
-
-# FIGURE 3
-plt.figure(3)
-
-# Plot drift rates against pulse number
-plt.plot(prefs, driftrates, 'o')
-plt.xlabel("Pulse number of driftband intercept through x={}".format(xref))
-plt.ylabel("Drift rate (deg per pulse)")
-
-plt.savefig("1274143152_dr_over_time.png")
-
-# FIGURE 3
-plt.figure(4)
-
-# Plot est. P3 against pulse number
-plt.plot(prefs, P2/driftrates, 'o')
-plt.xlabel("Pulse number of driftband intercept through x={}".format(xref))
-plt.ylabel("P_3 (P_1)")
-
-plt.savefig("1274143152_P3_over_time.png")
-
-#plt.show()
 '''
+
 
 if __name__ == '__main__':
     # Load the data
     ps = DriftAnalysisInteractivePlot()
-    ps.load_json("test.json")
+    ps.load_json(sys.argv[1])
     #ps.load_from_pdv('1274143152_J0024-1932.F.pdv', 'I')
     '''
     ps.set_fiducial_phase(131.836)
@@ -660,5 +648,5 @@ if __name__ == '__main__':
 
     '''
     ps.start()
-    ps.save_json("test.json")
+    ps.save_json()
 
