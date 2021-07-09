@@ -269,8 +269,8 @@ class DriftAnalysisInteractivePlot(DriftAnalysis):
                 print("S     Toggle pulsestack smoothed with Gaussian filter")
                 print("F     Set fiducial point")
                 print("C     Crop pulsestack to current visible image")
-                print("D     Delete a subpulse")
-                print("A     Add a subpulse")
+                print(".     Add a subpulse")
+                print(">     Delete a subpulse")
                 print("P     Plot the profile of the current view")
                 print("T     Plot the LRFS of the current view")
                 print("/     Add a drift mode boundary")
@@ -339,13 +339,13 @@ class DriftAnalysisInteractivePlot(DriftAnalysis):
                 self.fig.canvas.draw()
                 self.mode = "crop"
 
-            elif event.key == "D":
+            elif event.key == ">":
                 self.deselect()
                 self.ax.set_title("Select a subpulse to delete.\nThen press enter to confirm, esc to leave delete mode.")
                 self.fig.canvas.draw()
                 self.mode = "delete_subpulse"
 
-            elif event.key == "A":
+            elif event.key == ".":
                 self.deselect()
                 self.ax.set_title("Add subpulses by clicking on the pulsestack.\nThen press enter to confirm, esc to leave add mode.")
                 self.fig.canvas.draw()
@@ -365,8 +365,11 @@ class DriftAnalysisInteractivePlot(DriftAnalysis):
 
             elif event.key == "P":
                 cropped = self.crop(pulse_range=self.ax.get_ylim(), phase_deg_range=self.ax.get_xlim(), inplace=False)
+
+                # Make the profile and an array of phases
                 profile = np.mean(cropped.values, axis=0)
                 phases = np.arange(cropped.nbins)*cropped.dphase_deg + cropped.first_phase
+
                 profile_fig, profile_ax = plt.subplots()
                 profile_ax.plot(phases, profile)
                 profile_ax.set_xlabel("Pulse phase (deg)")
