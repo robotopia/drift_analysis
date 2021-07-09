@@ -10,11 +10,111 @@ import json
 import bisect
 import pulsestack
 
+class Subpulses:
+
+    def __init__(self):
+
+        self.delete_all_subpulses() # Apart from deleting, this also initialises everything
+
+    def add_subpulses(self, phases, pulses, widths=None, driftbands=None):
+        if len(phases) != len(pulses):
+            print("Lengths of phases and pulses don't match. No subpulses added.")
+            return
+
+        nnewsubpulses = len(phases)
+
+        if widths is None:
+            widths = np.full((nnewsubpulses), np.nan)
+        elif np.isscalar(widths):
+            widths = np.full((nnewsubpulses), widths)
+        elif len(widths) != nnewsubpulses:
+            print("Length of widths doesn't match phases and pulses. No subpulses added.")
+            return
+
+        if driftbands is None:
+            driftbands = np.full((nnewsubpulses), np.nan)
+        elif np.isscalar(driftbands):
+            driftbands = np.full((nnewsubpulses), driftbands)
+        elif len(driftbands) != nnewsubpulses:
+            print("Length of driftbands doesn't match phases and pulses. No subpulses added.")
+            return
+
+        newsubpulses = np.transpose([phases, pulses, widths, driftbands])
+        self.data = np.vstack((self.data, newsubpulses))
+
+        # Keep track of the number of subpulses
+        self.nsubpulses = self.data.shape[0]
+
+    def delete_subpulses(self, delete_idxs):
+        np.delete(self.data, delete_idxs, axis=0)
+        self.nsubpulses = self.data.shape[0]
+
+    def delete_all_subpulses(self):
+        self.nsubpulses  = 0
+        self.nproperties = 4
+
+        self.data = np.full((self.nsubpulses, self.nproperties), np.nan)
+
+    def get_phases(self):
+        return self.data[:,0]
+
+    def get_pulses(self):
+        return self.data[:,1]
+
+    def get_widths(self):
+        return self.data[:,2]
+
+    def get_driftbands(self):
+        return self.data[:,3]
+
+    def get_positions(self):
+        '''
+        Returns an Nx2 numpy array of subpulse positions (phase, pulse)
+        '''
+        return self.data[:,:2]
+
+    def set_phases(self, phases):
+        self.data[:,0] = phases
+
+    def set_pulses(self, pulses):
+        self.data[:,1] = pulses
+
+    def set_widths(self, widths):
+        self.data[:,2] = widths
+
+    def set_driftbands(self, driftbands):
+        self.data[:,3] = driftbands
+
+    def shift_all_subpulses(self, dphase=None, dpulse=None):
+        if dphase is not None:
+            self.data[:,0] += dphase
+
+        if dpulse is not None:
+            self.data[:,1] += dpulse
+
+    def calc_drift(self, subpulse_idxs):
+        '''
+        Fits a line to the given set of subpulses
+        Returns the driftrate and y-intercept of the line at the fiducial point
+        '''
+        if len(subpulse_idxs) < 2:
+            print("Not enough subpulses selected. No drift line fitted")
+            return
+
+        phases = self.get_phases()
+        pulses = self.get_pulses()
+
+        linear_fit = polyfit(phases, pulses, 1)
+        driftrate = 1/linear_fit[1]
+        yintercept = linear_fit[0]
+
+        return driftrate, yintercept
+
 class DriftAnalysis(pulsestack.Pulsestack):
     def __init__(self):
         self.fig = None
         self.ax  = None
-        self.subpulses = np.array([[], []])
+        self.subpulses = Subpulses()
         self.subpulses_plt = None
         self.subpulses_fmt = 'gx'
         self.maxima_threshold = 0.0
@@ -68,8 +168,12 @@ class DriftAnalysis(pulsestack.Pulsestack):
                 "first_phase":         self.first_phase,
                 "dpulse":              self.dpulse,
                 "dphase_deg":          self.dphase_deg,
-                "subpulses_pulse":     list(self.subpulses[0]),
-                "subpulses_phase":     list(self.subpulses[1]),
+
+                "subpulses_pulse":     list(self.subpulses.get_pulses()),
+                "subpulses_phase":     list(self.subpulses.get_phases()),
+                "subpulses_width":     list(self.subpulses.get_widths()),
+                "subpulses_driftband": list(self.subpulses.get_driftbands()),
+
                 "maxima_threshold":    self.maxima_threshold,
                 "subpulses_fmt":       self.subpulses_fmt,
                 "drift_mode_boundaries": list(self.drift_mode_boundaries),
@@ -97,7 +201,14 @@ class DriftAnalysis(pulsestack.Pulsestack):
         self.first_phase      = drift_dict["first_phase"]
         self.dpulse           = drift_dict["dpulse"]
         self.dphase_deg       = drift_dict["dphase_deg"]
-        self.subpulses        = np.array([drift_dict["subpulses_pulse"], drift_dict["subpulses_phase"]])
+
+        subpulses_pulse       = drift_dict["subpulses_pulse"]
+        subpulses_phase       = drift_dict["subpulses_phase"]
+        subpulses_width       = drift_dict["subpulses_width"]
+        subpulses_driftband   = drift_dict["subpulses_driftband"]
+
+        self.subpulses.add_subpulses(subpulses_phase, subpulses_pulse, subpulses_width, subpulses_driftband)
+
         self.maxima_threshold = drift_dict["maxima_threshold"]
         self.subpulses_fmt    = drift_dict["subpulses_fmt"]
         self.drift_mode_boundaries = np.array(drift_dict["drift_mode_boundaries"])
@@ -107,9 +218,9 @@ class DriftAnalysis(pulsestack.Pulsestack):
 
     def plot_subpulses(self, **kwargs):
         if self.subpulses_plt is None:
-            self.subpulses_plt, = self.ax.plot(self.subpulses[1], self.subpulses[0], self.subpulses_fmt, **kwargs)
+            self.subpulses_plt, = self.ax.plot(self.subpulses.get_phases(), self.subpulses.get_pulses(), self.subpulses_fmt, **kwargs)
         else:
-            self.subpulses_plt.set_data(self.subpulses[1,:], self.subpulses[0,:])
+            self.subpulses_plt.set_data(self.subpulses.get_phases(), self.subpulses.get_pulses)
 
     def plot_drift_mode_boundaries(self):
         xlo = self.first_phase
@@ -147,9 +258,9 @@ class DriftAnalysisInteractivePlot(DriftAnalysis):
 
             if self.selected is not None:
                 if self.selected_plt is None:
-                    self.selected_plt, = self.ax.plot([self.subpulses[1,self.selected]], [self.subpulses[0,self.selected]], 'wo')
+                    self.selected_plt, = self.ax.plot([self.subpulses.get_phases()[self.selected]], [self.subpulses.get_pulses()[self.selected]], 'wo')
                 else:
-                    self.selected_plt.set_data([self.subpulses[1,self.selected]], [self.subpulses[0,self.selected]])
+                    self.selected_plt.set_data([self.subpulses.get_phases()[self.selected]], [self.subpulses.get_pulses()[self.selected]])
             else:
                 if self.selected_plt is not None:
                     self.selected_plt.set_data([], [])
@@ -228,8 +339,8 @@ class DriftAnalysisInteractivePlot(DriftAnalysis):
                     self.smoothed_ps.set_fiducial_phase(event.xdata)
 
                 # Adjust all the maxima points
-                if self.subpulses.shape[1] > 0:
-                    self.subpulses[1] -= event.xdata
+                if self.subpulses.nsubpulses > 0:
+                    self.subpulses.shift_all_subpulses(dphase=-event.xdata)
 
                 # Replot everything
                 current_xlim = self.ax.get_xlim()
@@ -422,7 +533,8 @@ class DriftAnalysisInteractivePlot(DriftAnalysis):
         elif self.mode == "set_threshold":
             if event.key == "enter":
                 self.threshold_line.set_data([], [])
-                self.subpulses = self.max_locations
+                self.subpulses.delete_all_subpulses()
+                self.subpulses.add_subpulses(self.max_locations[1], self.max_locations[0])
                 self.set_default_mode()
             elif event.key == "escape":
                 self.threshold_line.set_data([], [])
@@ -444,7 +556,7 @@ class DriftAnalysisInteractivePlot(DriftAnalysis):
                 if self.selected is not None:
                     # Delete the selected point from the actual list
                     # Here, "selected" refers to the idx of subpulses[]
-                    self.subpulses = np.delete(self.subpulses, self.selected, axis=-1)
+                    self.subpulses.delete_subpulses(self.selected)
 
                     # Delete the point from the plot
                     self.plot_subpulses()
@@ -483,7 +595,7 @@ class DriftAnalysisInteractivePlot(DriftAnalysis):
             if event.key == "enter":
                 # Here, "selected" is [pulse, phase] of new candidate subpulse
                 if self.selected is not None:
-                    self.subpulses = np.hstack((self.subpulses, [[self.selected[0]],[self.selected[1]]]))
+                    self.subpulses.add_subpulses([self.selected[0]], [self.selected[1]])
                     self.plot_subpulses()
                 self.deselect()
                 self.fig.canvas.draw()
@@ -524,7 +636,7 @@ class DriftAnalysisInteractivePlot(DriftAnalysis):
         return idx, dists[idx]
 
     def closest_subpulse(self, x, y):
-        subpulses_display = self.ax.transData.transform(np.transpose(np.flip(self.subpulses, axis=0)))
+        subpulses_display = self.ax.transData.transform(self.subpulses.get_positions())
         dists = np.hypot(x - subpulses_display[:,0], y - subpulses_display[:,1])
         idx = np.argmin(dists)
         return idx, dists[idx]
