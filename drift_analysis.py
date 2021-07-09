@@ -142,7 +142,7 @@ class DriftSequences:
         else:
             first_idx = self.boundaries[sequence_idx - 1] + 1
 
-        if sequence_idx == len(self.boundaries) + 1:
+        if sequence_idx == len(self.boundaries):
             last_idx = npulses - 1
         else:
             last_idx = self.boundaries[sequence_idx]
@@ -429,6 +429,12 @@ class DriftAnalysisInteractivePlot(DriftAnalysis):
             if event.inaxes == self.ax:
                 pulse_idx = self.get_pulse_bin(event.ydata, inrange=False)
                 self.selected = self.drift_sequences.get_sequence_number(pulse_idx, self.npulses)
+                if self.selected is not None:
+                    first_idx, last_idx = self.drift_sequences.get_bounding_pulse_idxs(self.selected, self.npulses)
+                    self.ax.set_title("Select a drift sequence by clicking on the pulsestack.\n({}, {}) - Press enter to confirm, esc to cancel.".format(first_idx, last_idx))
+                else:
+                    self.ax.set_title("Select a drift sequence by clicking on the pulsestack.\nPress enter to confirm, esc to cancel.")
+                self.fig.canvas.draw()
 
     def set_default_mode(self):
         self.ax.set_title("Press (capital) 'H' for command list")
