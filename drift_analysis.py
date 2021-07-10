@@ -302,14 +302,37 @@ class DriftAnalysis(pulsestack.Pulsestack):
             self.dm_boundary_plt = self.ax.hlines(ys, xlo, xhi, colors=["k"], linestyles='dashed')
 
     def cross_correlate_successive_pulses(self):
+        # Calculate the cross correlation via the Fourier Transform
         rffted    = np.fft.rfft(self.values, axis=1)
         corred    = np.conj(rffted[:-1,:]) * rffted[1:,:]
         shift     = self.nbins//2
         crosscorr = np.roll(np.fft.irfft(corred, axis=1), shift, axis=1)
+
+        # Calculate the lags and put zero lag in the centre
+        # Even though there is a np.fftshift function for this, I'm doing it
+        # "by hand" so that I don't have to worry by how much it gets shifted depending on
+        # whether it's an odd or even number of bins, when it doesn't really matter where
+        # the "Nyquist" bin ends up.
         lags      = np.arange(-shift, crosscorr.shape[1] - shift)*self.dphase_deg
+
         return crosscorr, lags, shift
 
-    #def drift_rate_via_cross_correlation(self, approxP2, ):
+    def auto_correlate_pulses(self, set_DC_value=None):
+        # Calculate the auto correlation via the Fourier Transform
+        rffted   = np.fft.rfft(self.values, axis=1)
+        corred   = np.conj(rffted) * rffted
+        shift    = self.nbins//2
+        autocorr = np.fft.irfft(corred, axis=1)
+        if set_DC_value is not None:
+            autocorr[:,0] = set_DC_value
+        autocorr = np.roll(autocorr, shift, axis=1)
+        lags     = np.arange(-shift, autocorr.shape[1] - shift)*self.dphase_deg
+        return autocorr, lags, shift
+
+    #def drift_rate_via_cross_correlation(self, approx_P2, smoothing_kernel=None):
+        '''
+        This function calculates the drift rate for each pulse in the following way:
+        '''
 
 class DriftAnalysisInteractivePlot(DriftAnalysis):
     def __init__(self):
@@ -482,6 +505,7 @@ class DriftAnalysisInteractivePlot(DriftAnalysis):
                 print("v     Toggle visibility of plot feature")
                 print("z     Zoom to selected drift sequence")
                 print("d     Plot the cross-correlation of pulses with their successor")
+                print("A     Plot the auto-correlation of each pulse")
 
             elif event.key == "j":
                 self.save_json()
@@ -626,11 +650,6 @@ class DriftAnalysisInteractivePlot(DriftAnalysis):
                 self.fig.canvas.draw()
 
             elif event.key == "d":
-                # Calculate the lags and put zero lag in the centre
-                # Even though there is a np.fftshift function for this, I'm doing it
-                # "by hand" so that I don't have to worry by how much it gets shifted depending on
-                # whether it's an odd or even number of bins, when it doesn't really matter where
-                # the "Nyquist" bin ends up.
                 crosscorr, lags, shift = self.cross_correlate_successive_pulses()
 
                 # Calculate extent "by hand"
@@ -649,6 +668,28 @@ class DriftAnalysisInteractivePlot(DriftAnalysis):
                 corr_axs[0].axvline(0, linestyle='--', color='k')
                 corr_axs[0].plot(lags, np.sum(crosscorr, axis=0))
                 corr_axs[0].set_title("Sum of (below) cross correlations")
+
+                corr_fig.show()
+
+            elif event.key == "A":
+                autocorr, lags, shift = self.auto_correlate_pulses(set_DC_value=np.nan)
+
+                # Calculate extent "by hand"
+                extent = (lags[0] - 0.5*self.dphase_deg,
+                        lags[-1] + 0.5*self.dphase_deg,
+                        self.first_pulse - 0.5*self.dpulse,
+                        self.first_pulse + (autocorr.shape[0] - 0.5)*self.dpulse)
+
+                corr_fig, corr_axs = plt.subplots(2, 1, sharex=True)
+
+                corr_axs[1].imshow(autocorr, aspect='auto', origin='lower', interpolation='none', cmap='hot', extent=extent)
+                corr_axs[1].set_xlabel("Correlation lag (deg)")
+                corr_axs[1].set_ylabel("Pulse number")
+                corr_axs[1].set_title("Auto-correlation of each pulse")
+
+                corr_axs[0].axvline(0, linestyle='--', color='k')
+                corr_axs[0].plot(lags, np.sum(autocorr, axis=0))
+                corr_axs[0].set_title("Sum of (below) auto-correlations")
 
                 corr_fig.show()
 
