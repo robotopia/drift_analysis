@@ -130,10 +130,10 @@ class Pulsestack:
         return newps
 
     def calc_image_extent(self):
-        return (self.first_phase - 0.5*self.dphase_deg,
+        return [self.first_phase - 0.5*self.dphase_deg,
                   self.first_phase + (self.values.shape[1] - 0.5)*self.dphase_deg,
                   self.first_pulse - 0.5*self.dpulse,
-                  self.first_pulse + (self.values.shape[0] - 0.5)*self.dpulse)
+                  self.first_pulse + (self.values.shape[0] - 0.5)*self.dpulse]
 
     def plot_image(self, **kwargs):
         # Plots the pulsestack as an image
