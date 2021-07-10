@@ -125,7 +125,7 @@ class DriftSequences:
             bisect.insort(self.boundaries, pulse_idx)
 
     def delete_boundaries(self, boundary_idxs):
-        self.boundaries = np.delete(self.boundaries, boundary_idxs)
+        self.boundaries = [v for i, v in enumerate(self.boundaries) if i not in boundary_idxs]
 
     def get_bounding_pulse_idxs(self, sequence_idx, npulses):
         '''
