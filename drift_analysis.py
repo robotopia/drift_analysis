@@ -200,6 +200,10 @@ class QuadraticFit(pulsestack.Pulsestack):
         self.first_pulse_idx = None
         self.last_pulse_idx  = None
 
+        # A dictionary for keeping track of line plot objects
+        # Dictioney keys are intended to be driftband numbers
+        self.driftband_plts = {}
+
     def set_pulse_bounds(self, first_pulse_idx, last_pulse_idx):
         self.first_pulse_idx = first_pulse_idx
         self.last_pulse_idx  = last_pulse_idx
@@ -282,16 +286,21 @@ class QuadraticFit(pulsestack.Pulsestack):
         ph = self.calc_phase(p, d)
 
         if phlim is not None:
-            in_phase_range = np.logical_or(ph < phlim[0], ph > phlim[1])
+            in_phase_range = np.logical_and(ph >= phlim[0], ph <= phlim[1])
             p  = p[in_phase_range]
             ph = ph[in_phase_range]
 
-        ax.plot(ph, p, **kwargs)
+        self.driftband_plts[d] = ax.plot(ph, p, **kwargs)
 
     def plot_all_driftbands(self, ax, phlim, idx2pulse_func, **kwargs):
         first_d, last_d = self.get_driftband_range(phlim, idx2pulse_func)
         for d in range(first_d, last_d+1):
             self.plot_driftband(ax, d, idx2pulse_func, phlim=phlim, **kwargs)
+
+    def clear_all_plots(self):
+        for d in self.driftband_plts:
+            self.driftband_plts[d][0].set_data([], [])
+        self.driftband_plts = {}
 
 class DriftAnalysis(pulsestack.Pulsestack):
     def __init__(self):
@@ -304,6 +313,7 @@ class DriftAnalysis(pulsestack.Pulsestack):
         self.drift_sequences = DriftSequences()
         self.dm_boundary_plt = None
         self.jsonfile = None
+        self.candidate_quadratic_model = QuadraticFit()
 
     def get_local_maxima(self, maxima_threshold=None):
         if maxima_threshold is None:
@@ -607,6 +617,10 @@ class DriftAnalysisInteractivePlot(DriftAnalysis):
                 self.ps_image.set_extent(self.calc_image_extent())
                 self.plot_subpulses()
 
+                # Add the * to the window title
+                if self.jsonfile is not None:
+                    self.fig.canvas.manager.set_window_title(self.jsonfile + "*")
+
                 # Go back to default mode
                 self.set_default_mode()
 
@@ -892,6 +906,7 @@ class DriftAnalysisInteractivePlot(DriftAnalysis):
                 self.fig.canvas.draw()
                 self.mode = "quadratic_fit"
                 self.quadratic_selected = []
+                self.quadratic_selected_plt = None
                 self.drift_sequence_selected = None
 
             '''
@@ -1094,20 +1109,30 @@ class DriftAnalysisInteractivePlot(DriftAnalysis):
                 p  = q[:,1] # The pulses
                 d  = q[:,2] # The driftbands
 
+                # Draw the points selected so far
+                if self.quadratic_selected_plt is None:
+                    self.quadratic_selected_plt = self.ax.plot(ph, p, 'bo')
+                else:
+                    self.quadratic_selected_plt[0].set_data(ph, p)
+
+                if len(self.quadratic_selected) >= 4:
                 #try:
-                if len(q) >= 4:
-                    candidate_quadratic_model = QuadraticFit()
-                    candidate_quadratic_model.least_squares_fit_to_subpulses(ph, p, d)
-                    print(candidate_quadratic_model.parameters)
+                    self.candidate_quadratic_model.least_squares_fit_to_subpulses(ph, p, d)
                     first_pulse_idx, last_pulse_idx = self.drift_sequences.get_bounding_pulse_idxs(self.drift_sequence_selected, self.npulses)
-                    candidate_quadratic_model.set_pulse_bounds(first_pulse_idx, last_pulse_idx)
-                    phlim = [-20,20] # CHANGE ME! MAKE MORE GENERAL!
-                    candidate_quadratic_model.plot_all_driftbands(self.ax, phlim, self.get_pulse_from_bin, color='k')
+                    self.candidate_quadratic_model.set_pulse_bounds(first_pulse_idx, last_pulse_idx)
+                    phlim = [-15,15] # CHANGE ME! MAKE MORE GENERAL!
+                    self.candidate_quadratic_model.clear_all_plots()
+                    self.candidate_quadratic_model.plot_all_driftbands(self.ax, phlim, self.get_pulse_from_bin, color='k')
                     self.fig.canvas.draw()
                 #except:
                 #    pass
 
             elif event.key == "escape":
+
+                if self.quadratic_selected_plt is not None:
+                    self.quadratic_selected_plt[0].set_data([], [])
+                    self.quadratic_selected_plt = None
+
                 self.deselect()
                 self.set_default_mode()
 
