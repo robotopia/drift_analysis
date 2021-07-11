@@ -70,6 +70,12 @@ class Pulsestack:
     def get_phase_from_bin(self, phase_bin):
         return phase_bin*self.dphase_deg + self.first_phase
 
+    def get_pulses_array(self):
+        return self.get_pulse_from_bin(np.arange(self.npulses))
+
+    def get_phases_array(self):
+        return self.get_phase_from_bin(np.arange(self.nbins))
+
     def set_fiducial_phase(self, phase_deg):
         self.first_phase -= phase_deg
 

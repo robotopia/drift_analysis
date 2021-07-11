@@ -1,11 +1,17 @@
 import sys
+
 import numpy as np
-import matplotlib.pyplot as plt
 from numpy.polynomial.polynomial import polyfit, polyval
+
+import matplotlib.pyplot as plt
+
 from scipy.interpolate import interp1d
+from scipy.ndimage import gaussian_filter1d
+
 import tkinter
 import tkinter.filedialog
 import tkinter.simpledialog
+
 import json
 import bisect
 import pulsestack
@@ -301,38 +307,72 @@ class DriftAnalysis(pulsestack.Pulsestack):
         else:
             self.dm_boundary_plt = self.ax.hlines(ys, xlo, xhi, colors=["k"], linestyles='dashed')
 
-    def cross_correlate_successive_pulses(self):
+    def cross_correlate_successive_pulses(self, do_shift=True):
         # Calculate the cross correlation via the Fourier Transform
         rffted    = np.fft.rfft(self.values, axis=1)
         corred    = np.conj(rffted[:-1,:]) * rffted[1:,:]
         shift     = self.nbins//2
-        crosscorr = np.roll(np.fft.irfft(corred, axis=1), shift, axis=1)
-
+        crosscorr = np.fft.irfft(corred, axis=1)
         # Calculate the lags and put zero lag in the centre
         # Even though there is a np.fftshift function for this, I'm doing it
         # "by hand" so that I don't have to worry by how much it gets shifted depending on
-        # whether it's an odd or even number of bins, when it doesn't really matter where
+        # whether it's an odd or even number of bins, as it doesn't really matter where
         # the "Nyquist" bin ends up.
-        lags      = np.arange(-shift, crosscorr.shape[1] - shift)*self.dphase_deg
+        lags      = np.arange(crosscorr.shape[1])*self.dphase_deg
+        if do_shift:
+            crosscorr = np.roll(crosscorr, shift, axis=1)
+            lags     -= shift*self.dphase_deg
 
         return crosscorr, lags, shift
 
-    def auto_correlate_pulses(self, set_DC_value=None):
+    def auto_correlate_pulses(self, do_shift=True, set_DC_value=None):
         # Calculate the auto correlation via the Fourier Transform
         rffted   = np.fft.rfft(self.values, axis=1)
         corred   = np.conj(rffted) * rffted
         shift    = self.nbins//2
         autocorr = np.fft.irfft(corred, axis=1)
+        lags     = np.arange(autocorr.shape[1])*self.dphase_deg
+
         if set_DC_value is not None:
             autocorr[:,0] = set_DC_value
-        autocorr = np.roll(autocorr, shift, axis=1)
-        lags     = np.arange(-shift, autocorr.shape[1] - shift)*self.dphase_deg
+
+        if do_shift:
+            autocorr = np.roll(autocorr, shift, axis=1)
+            lags    -= shift*self.dphase_deg
+
         return autocorr, lags, shift
 
-    #def drift_rate_via_cross_correlation(self, approx_P2, smoothing_kernel=None):
+    def driftrates_via_cross_correlation(self, approx_P2, smoothing_kernel_size=None):
         '''
         This function calculates the drift rate for each pulse in the following way:
+        It first calculates the cross correlation of each pulse with its successor.
+        Then it smooths with a gaussian kernel, and finds the position of the peak
+        (via linear interpolation) that lies in the range
+        [-0.5*approx_P2:0.5*approx_P2]
+        The default smoothing kernel size is 0.1*approx_P2
         '''
+        crosscorr, lags, shift = self.cross_correlate_successive_pulses()
+
+        lo_idx = shift - int(0.5*approx_P2/self.dphase_deg)
+        hi_idx = shift + int(0.5*approx_P2/self.dphase_deg) + 1
+
+        if smoothing_kernel_size is None:
+            smoothing_kernel_size = 0.1*approx_P2
+
+        smoothed = gaussian_filter1d(crosscorr[:,lo_idx:hi_idx], smoothing_kernel_size/self.dphase_deg, mode='wrap')
+
+        max_idxs = np.argmax(smoothed, axis=1)
+
+        # Let a1, a2, a3 be the values before, at, and after the peak respectively.
+        # Then linear interpolation of the differences gives a root at interpolated bin number
+        # relative to the peak bin
+        # (p2-p1)/((p2-p1)-(p3-p2)) + 0.5
+        #   = (p2-p1)/(2*p2 - p1 - p3) + 0.5
+        interpolated_idxs = np.array([(smoothed[p,max_idxs[p]] - smoothed[p,max_idxs[p]-1])/(2*smoothed[p,max_idxs[p]] - smoothed[p,max_idxs[p]-1] - smoothed[p,max_idxs[p]+1]) + 0.5 for p in range(len(max_idxs))])
+
+        # Now just convert the interpolated bin numbers into absolute phases
+        driftrates = (interpolated_idxs + max_idxs + lo_idx - shift)*self.dphase_deg
+        return driftrates
 
 class DriftAnalysisInteractivePlot(DriftAnalysis):
     def __init__(self):
@@ -506,6 +546,7 @@ class DriftAnalysisInteractivePlot(DriftAnalysis):
                 print("z     Zoom to selected drift sequence")
                 print("d     Plot the cross-correlation of pulses with their successor")
                 print("A     Plot the auto-correlation of each pulse")
+                #print("r     Calculate drift rates from cross correlations")
 
             elif event.key == "j":
                 self.save_json()
@@ -669,6 +710,11 @@ class DriftAnalysisInteractivePlot(DriftAnalysis):
                 corr_axs[0].plot(lags, np.sum(crosscorr, axis=0))
                 corr_axs[0].set_title("Sum of (below) cross correlations")
 
+                # Also, get the drift rates and plot them on the cross correlation
+                approxP2 = 15 # CHANGE ME! Make more general!
+                driftrates = self.driftrates_via_cross_correlation(approxP2)
+                corr_axs[1].plot(driftrates, self.get_pulses_array()[:-1], 'gx')
+
                 corr_fig.show()
 
             elif event.key == "A":
@@ -692,6 +738,19 @@ class DriftAnalysisInteractivePlot(DriftAnalysis):
                 corr_axs[0].set_title("Sum of (below) auto-correlations")
 
                 corr_fig.show()
+
+            '''
+            elif event.key == "r":
+                approxP2 = 15 # CHANGE ME! Make more general!
+                driftrates = self.driftrates_via_cross_correlation(approxP2)
+
+                # Plot results
+                dr_fig, dr_ax = plt.subplots()
+                dr_ax.plot(self.get_pulses_array()[:-1], driftrates)
+                dr_ax.set_xlabel("Pulse number of first pulse in cross correlation")
+                dr_ax.set_ylabel("Drift rate (deg)")
+                dr_fig.show()
+            '''
 
         elif self.mode == "toggle_visibility":
             if event.key == ".":
