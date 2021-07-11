@@ -173,6 +173,9 @@ class DriftSequences:
     def __init__(self):
         self.boundaries = []  # Contains indexes of pulse numbers preceding the boundary
 
+    def number_of_sequences(self):
+        return len(self.boundaries) + 1
+
     def has_boundary(self, pulse_idx):
         if pulse_idx in self.boundaries:
             return True
@@ -1127,8 +1130,34 @@ class DriftAnalysisInteractivePlot(DriftAnalysis):
         elif self.mode == "delete_drift_mode_boundary":
             if event.key == "enter":
                 if self.selected is not None:
-                    # Delete the selected boundary from the actual list
                     # Here, "selected" refers to the idx of drift_mode_boundaries[]
+
+                    # Before actually deleting the boundary, we have to consider how deleting
+                    # it will affect the quadratic fits. Only two changes have to be made:
+                    #   1) the fits for the immediately affected sequences should be deleted,
+                    #      as there's no (easy) way to decide which of the two surrounding
+                    #      sequences should take precedence
+                    #   2) all quadratic fits to later sequences have to be assigned a new
+                    #      (lower) sequence number
+                    seq = self.selected
+                    nseq = self.drift_sequences.number_of_sequences()
+
+                    # 1.
+                    if seq in self.quadratic_fits.keys():
+                        self.quadratic_fits[seq].clear_all_plots()
+                        self.quadratic_fits.pop(seq)
+
+                    if seq+1 in self.quadratic_fits.keys():
+                        self.quadratic_fits[seq+1].clear_all_plots()
+                        self.quadratic_fits.pop(seq+1)
+
+                    # 2.
+                    # Start from the next sequence and work up, bumping each one down by 1 as we go
+                    for i in range(seq+2, nseq):
+                        if i in self.quadratic_fits.keys():
+                            self.quadratic_fits[i-1] = self.quadratic_fits.pop(i)
+
+                    # Now, actually delete the selected boundary
                     self.drift_sequences.delete_boundaries([self.selected])
 
                     # Delete the boundary line from the plot
@@ -1167,6 +1196,41 @@ class DriftAnalysisInteractivePlot(DriftAnalysis):
                     return
 
                 # Here, "selected" refers to the pulse_idx of the drift mode boundary
+
+                # Before actually adding the boundary, we have to consider how adding it
+                # will affect the quadratic fits. Only two changes have to be made:
+                #   1) all quadratic fits to later sequences have to be assigned a new
+                #      (higher) sequence number
+                #   2) the fit for the selected sequence should be copied to the two "new"
+                #      sequences, with the appropriate adjustments to the pulse ranges
+                seq = self.drift_sequences.get_sequence_number(self.selected, self.npulses)
+                nseq = self.drift_sequences.number_of_sequences()
+
+                # 1.
+                # Start from the last sequence and work down, bumping each one up by 1 as we go
+                for i in range(nseq, seq, -1):
+                    if i in self.quadratic_fits.keys():
+                        self.quadratic_fits[i+1] = self.quadratic_fits.pop(i)
+
+                # 2.
+                if seq in self.quadratic_fits.keys():
+                    self.quadratic_fits[seq+1] = copy.copy(self.quadratic_fits[seq])
+                    self.quadratic_fits[seq].last_pulse_idx = self.selected
+                    self.quadratic_fits[seq+1].first_pulse_idx = self.selected + 1
+
+                    # Redraw the affected plots
+                    if self.onpulse is None:
+                        phlim = self.get_phase_from_bin([0, self.nbins-1])
+                    else:
+                        phlim = self.onpulse
+
+                    self.quadratic_fits[seq].clear_all_plots()
+                    self.quadratic_fits[seq].plot_all_driftbands(self.ax, phlim, self.get_pulse_from_bin, color='k')
+
+                    self.quadratic_fits[seq+1].clear_all_plots()
+                    self.quadratic_fits[seq+1].plot_all_driftbands(self.ax, phlim, self.get_pulse_from_bin, color='k')
+
+                # Now actually add the boundary
                 self.drift_sequences.add_boundary(self.selected)
 
                 xlim = self.ax.get_xlim()
