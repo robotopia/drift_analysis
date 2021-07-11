@@ -384,6 +384,7 @@ class DriftAnalysis(pulsestack.Pulsestack):
         self.candidate_quadratic_model = QuadraticFit()
         self.onpulse                   = None
         self.quadratic_fits            = {}  # Keys = drift sequence numbers
+        self.quadratic_visible         = True
 
     def set_onpulse(self, phlim):
         if phlim == []:
@@ -524,6 +525,10 @@ class DriftAnalysis(pulsestack.Pulsestack):
                 phlim = self.onpulse
 
             self.quadratic_fits[i].plot_all_driftbands(self.ax, phlim, self.get_pulse_from_bin, color='k')
+
+    def unplot_all_quadratic_fits(self):
+        for i in self.quadratic_fits:
+            self.quadratic_fits[i].clear_all_plots()
 
     def cross_correlate_successive_pulses(self, do_shift=True):
         # Calculate the cross correlation via the Fourier Transform
@@ -957,7 +962,7 @@ class DriftAnalysisInteractivePlot(DriftAnalysis):
                 profile_fig.show()
 
             elif event.key == "v":
-                self.ax.set_title("Toggle visibility mode. Press escape when finished.\nsubpulses (.), drift mode boundaries (/)")
+                self.ax.set_title("Toggle visibility mode. Press escape when finished.\nsubpulses (.), drift mode boundaries (/), quadratic fits (@)")
                 self.fig.canvas.draw()
                 self.mode = "toggle_visibility"
 
@@ -1069,12 +1074,21 @@ class DriftAnalysisInteractivePlot(DriftAnalysis):
                     self.plot_subpulses()
                 self.fig.canvas.draw()
 
-            if event.key == "/":
+            elif event.key == "/":
                 if self.dm_boundary_plt is not None:
                     self.dm_boundary_plt.set_segments(np.empty((0,2)))
                     self.dm_boundary_plt = None
                 else:
                     self.plot_drift_mode_boundaries()
+                self.fig.canvas.draw()
+
+            elif event.key == "@":
+                if self.quadratic_visible:
+                    self.unplot_all_quadratic_fits()
+                    self.quadratic_visible = False
+                else:
+                    self.plot_all_quadratic_fits()
+                    self.quadratic_visible = True
                 self.fig.canvas.draw()
 
             elif event.key == "escape":
@@ -1219,16 +1233,17 @@ class DriftAnalysisInteractivePlot(DriftAnalysis):
                     self.quadratic_fits[seq+1].first_pulse_idx = self.selected + 1
 
                     # Redraw the affected plots
-                    if self.onpulse is None:
-                        phlim = self.get_phase_from_bin([0, self.nbins-1])
-                    else:
-                        phlim = self.onpulse
+                    if self.quadratic_visible:
+                        if self.onpulse is None:
+                            phlim = self.get_phase_from_bin([0, self.nbins-1])
+                        else:
+                            phlim = self.onpulse
 
-                    self.quadratic_fits[seq].clear_all_plots()
-                    self.quadratic_fits[seq].plot_all_driftbands(self.ax, phlim, self.get_pulse_from_bin, color='k')
+                        self.quadratic_fits[seq].clear_all_plots()
+                        self.quadratic_fits[seq].plot_all_driftbands(self.ax, phlim, self.get_pulse_from_bin, color='k')
 
-                    self.quadratic_fits[seq+1].clear_all_plots()
-                    self.quadratic_fits[seq+1].plot_all_driftbands(self.ax, phlim, self.get_pulse_from_bin, color='k')
+                        self.quadratic_fits[seq+1].clear_all_plots()
+                        self.quadratic_fits[seq+1].plot_all_driftbands(self.ax, phlim, self.get_pulse_from_bin, color='k')
 
                 # Now actually add the boundary
                 self.drift_sequences.add_boundary(self.selected)
