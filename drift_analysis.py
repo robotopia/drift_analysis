@@ -117,6 +117,25 @@ class Subpulses:
 
         return driftrate, yintercept
 
+    def assign_quadratic_driftbands_to_subpulses(self, quadratic_fit, idx2pulse_func):
+        '''
+        quadratic_fit - an object of QuadraticFit
+        This will classify each subpulse in the appropriate pulse range
+        into a driftband according to the given model.
+        '''
+        # Get only those subpulses within the valid range of the quadratic fit
+        p  = self.get_pulses()
+        p_lo, p_hi = idx2pulse_func(np.array(quadratic_fit.get_pulse_bounds()))
+
+        valid = np.logical_and(p >= p_lo, p <= p_hi)
+
+        a1, a2, a3, a4 = quadratic_fit.parameters
+        ph = self.get_phases()[valid]
+        p  = self.get_pulses()[valid]
+        d  = np.round((ph - a1*p**2 - a2*p - a3)/a4)
+
+        self.data[valid,3] = d
+
 class DriftSequences:
     def __init__(self):
         self.boundaries = []  # Contains indexes of pulse numbers preceding the boundary
@@ -208,6 +227,9 @@ class QuadraticFit(pulsestack.Pulsestack):
     def set_pulse_bounds(self, first_pulse_idx, last_pulse_idx):
         self.first_pulse_idx = first_pulse_idx
         self.last_pulse_idx  = last_pulse_idx
+
+    def get_pulse_bounds(self):
+        return [self.first_pulse_idx, self.last_pulse_idx]
 
     def least_squares_fit_to_subpulses(self, phases, pulses, driftbands):
         # phases, pulses, and driftbands must be vectors with the same length
@@ -392,6 +414,8 @@ class DriftAnalysis(pulsestack.Pulsestack):
                 "subpulses_width":     list(self.subpulses.get_widths()),
                 "subpulses_driftband": list(self.subpulses.get_driftbands()),
 
+                "quadratic_fits":      [[int(i), self.quadratic_fits[i].serialize()] for i in self.quadratic_fits],
+
                 "maxima_threshold":    self.maxima_threshold,
                 "subpulses_fmt":       self.subpulses_fmt,
                 "drift_mode_boundaries": self.drift_sequences.boundaries,
@@ -427,6 +451,10 @@ class DriftAnalysis(pulsestack.Pulsestack):
         subpulses_driftband   = drift_dict["subpulses_driftband"]
 
         self.subpulses.add_subpulses(subpulses_phase, subpulses_pulse, subpulses_width, subpulses_driftband)
+
+        for item in drift_dict["quadratic_fits"]:
+            self.quadratic_fits[item[0]] = QuadraticFit()
+            self.quadratic_fits[item[0]].unserialize(item[1])
 
         self.maxima_threshold = drift_dict["maxima_threshold"]
         self.subpulses_fmt    = drift_dict["subpulses_fmt"]
@@ -763,6 +791,7 @@ class DriftAnalysisInteractivePlot(DriftAnalysis):
                 print("A     Plot the auto-correlation of each pulse")
                 #print("r     Calculate drift rates from cross correlations")
                 print("@     Perform quadratic fitting (McSweeney et al, 2017)")
+                print("#     Assign subpulses to quadratic driftbands")
 
             elif event.key == "j":
                 self.save_json()
@@ -966,6 +995,11 @@ class DriftAnalysisInteractivePlot(DriftAnalysis):
                 self.mode = "quadratic_fit"
                 self.quadratic_selected = []
                 self.quadratic_selected_plt = None
+                self.drift_sequence_selected = None
+
+            elif event.key == "#":
+                self.drift_sequence_selected = 2 # <-- JUST TEMPORARY, FOR TESTING PURPOSES!
+                self.subpulses.assign_quadratic_driftbands_to_subpulses(self.quadratic_fits[self.drift_sequence_selected], self.get_pulse_from_bin)
                 self.drift_sequence_selected = None
 
             '''
@@ -1203,7 +1237,10 @@ class DriftAnalysisInteractivePlot(DriftAnalysis):
                 if event.key == "enter":
                     self.quadratic_fits[self.drift_sequence_selected] = copy.copy(self.candidate_quadratic_model)
 
-                # Make sure the saved model is drawn
+                    if self.jsonfile is not None:
+                        self.fig.canvas.manager.set_window_title(self.jsonfile + "*")
+
+                # Make sure the saved model (whether old or new) is drawn
                 if self.onpulse is None:
                     phlim = self.get_phase_from_bin([0, self.nbins-1])
                 else:
@@ -1244,6 +1281,7 @@ class DriftAnalysisInteractivePlot(DriftAnalysis):
 
         self.plot_subpulses()
         self.plot_drift_mode_boundaries()
+        self.plot_all_quadratic_fits()
 
         self.ax.set_xlim(xlim)
         self.ax.set_ylim(ylim)
