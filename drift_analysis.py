@@ -232,14 +232,14 @@ class DriftSequences:
         # n = len(self.boundaries) - 1
         # All the "0.5"s around the place is to make this function give sensible
         # results when pulse_idx is a fractional value
-        if pulse_idx < -0.5:
+        if pulse_idx < -0.5 or pulse_idx >= npulses - 0.5:
             sequence_number = None
+        elif self.number_of_sequences() == 1:
+            sequence_number = 0
         elif pulse_idx <= self.boundaries[0] + 0.5:
             sequence_number = 0
         elif len(self.boundaries) == 0:
             sequence_number = 0
-        elif pulse_idx >= npulses - 0.5:
-            sequence_number = None
         elif pulse_idx > self.boundaries[-1] + 0.5:
             sequence_number = len(self.boundaries)
         else:
