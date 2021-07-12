@@ -1,3 +1,5 @@
+__version__ = "0.9.1"
+
 import sys
 import copy
 
@@ -152,7 +154,7 @@ class Subpulses:
 
     def assign_quadratic_driftbands_to_subpulses(self, quadratic_fit, idx2pulse_func):
         '''
-        quadratic_fit - an object of QuadraticFit
+        quadratic_fit - an object of ModelFit
         This will classify each subpulse in the appropriate pulse range
         into a driftband according to the given model.
         '''
@@ -249,7 +251,7 @@ class DriftSequences:
 
         return sequence_number
 
-class QuadraticFit(pulsestack.Pulsestack):
+class ModelFit(pulsestack.Pulsestack):
     def __init__(self):
         # For the meaning of these variables, refer to McSweeney et al. (2017)
         self.parameters = None
@@ -389,7 +391,7 @@ class DriftAnalysis(pulsestack.Pulsestack):
         self.drift_sequences           = DriftSequences()
         self.dm_boundary_plt           = None
         self.jsonfile                  = None
-        self.candidate_quadratic_model = QuadraticFit()
+        self.candidate_quadratic_model = ModelFit()
         self.onpulse                   = None
         self.quadratic_fits            = {}  # Keys = drift sequence numbers
         self.quadratic_visible         = True
@@ -444,6 +446,7 @@ class DriftAnalysis(pulsestack.Pulsestack):
             return
 
         drift_dict = {
+                "version":             __version__,
                 "pdvfile":             self.pdvfile,
                 "stokes":              self.stokes,
                 "npulses":             self.npulses,
@@ -480,6 +483,9 @@ class DriftAnalysis(pulsestack.Pulsestack):
         with open(jsonfile, "r") as f:
             drift_dict = json.load(f)
 
+        if drift_dict["version"] != __version__:
+            print("Warning: version mismatch, File = {}, Software = {}".format(drift_dict["version"], __version__))
+
         self.pdvfile          = drift_dict["pdvfile"]
         self.stokes           = drift_dict["stokes"]
         self.npulses          = drift_dict["npulses"]
@@ -498,7 +504,7 @@ class DriftAnalysis(pulsestack.Pulsestack):
         self.subpulses.add_subpulses(subpulses_phase, subpulses_pulse, subpulses_width, subpulses_driftband)
 
         for item in drift_dict["quadratic_fits"]:
-            self.quadratic_fits[item[0]] = QuadraticFit()
+            self.quadratic_fits[item[0]] = ModelFit()
             self.quadratic_fits[item[0]].unserialize(item[1])
 
         self.maxima_threshold = drift_dict["maxima_threshold"]
