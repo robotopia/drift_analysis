@@ -306,8 +306,15 @@ class QuadraticFit(pulsestack.Pulsestack):
         return a1*p**2 + a2*p + a3 + a4*d
 
     def calc_driftrate(self, pulse):
-        a1, a2, a3, a4 = self.parameters
+        a1, a2, _, _ = self.parameters
         return 2*a1*pulse + a2
+
+    def calc_driftrate_derivative(self, pulse):
+        '''
+        Returns the driftrate derivative w.r.t. pulse
+        '''
+        a1, _, _, _ = self.parameters
+        return 2*a1
 
     def calc_P2(self):
         return self.parameters[3]
@@ -1074,7 +1081,7 @@ class DriftAnalysisInteractivePlot(DriftAnalysis):
                     p.append(self.get_pulse_from_bin(0.5*(p_lo + p_hi)))
                     d.append(self.quadratic_fits[seq].calc_driftrate(p[-1]))
                     a1 = self.quadratic_fits[seq].parameters[0]
-                    dd.append(2*a1)
+                    dd.append(self.quadratic_fits[seq].calc_driftrate_derivative(p[-1]))
                     dr_ax.plot(p, d, dd, 'ro')
                 dr_ax.set_xlabel("Pulse number")
                 dr_ax.set_ylabel("Drift rate (deg/pulse)")
