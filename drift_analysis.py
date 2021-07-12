@@ -156,7 +156,7 @@ class Subpulses:
         into a driftband according to the given model.
         '''
         # Get only those subpulses within the valid range of the quadratic fit
-        pulse_range = idx2pulse_func(np.array(quadratic_fit.get_pulse_bounds()))
+        pulse_range = idx2pulse_func(np.array(quadratic_fit.get_pulse_idx_bounds()))
         subset = self.in_pulse_range(pulse_range)
 
         a1, a2, a3, a4 = quadratic_fit.parameters
@@ -264,7 +264,7 @@ class QuadraticFit(pulsestack.Pulsestack):
         self.first_pulse_idx = first_pulse_idx
         self.last_pulse_idx  = last_pulse_idx
 
-    def get_pulse_bounds(self):
+    def get_pulse_idx_bounds(self):
         return [self.first_pulse_idx, self.last_pulse_idx]
 
     def least_squares_fit_to_subpulses(self, phases, pulses, driftbands):
@@ -838,6 +838,7 @@ class DriftAnalysisInteractivePlot(DriftAnalysis):
                 #print("r     Calculate drift rates from cross correlations")
                 print("@     Perform quadratic fitting via subpulse selection (McSweeney et al, 2017)")
                 print("#     Use all subpulses in sequence to improve quadratic fit")
+                print("$     Plot the drift rate of the quadratic fits against pulse number")
 
             elif event.key == "j":
                 self.save_json()
@@ -1047,6 +1048,18 @@ class DriftAnalysisInteractivePlot(DriftAnalysis):
                 self.quadratic_selected = []
                 self.quadratic_selected_plt = None
                 self.drift_sequence_selected = None
+
+            elif event.key == "$":
+                dr_fig, dr_ax = plt.subplots()
+                for seq in self.quadratic_fits:
+                    p_lo, p_hi = self.quadratic_fits[seq].get_pulse_idx_bounds()
+                    pulse_idxs = np.arange(p_lo, p_hi + 1)
+                    pulses     = self.get_pulse_from_bin(pulse_idxs)
+                    driftrates = self.quadratic_fits[seq].calc_driftrate(pulses)
+                    dr_ax.plot(pulses, driftrates, 'k')
+                dr_ax.set_xlabel("Pulse number")
+                dr_ax.set_ylabel("Drift rate (deg/pulse)")
+                dr_fig.show()
 
             '''
             elif event.key == "r":
