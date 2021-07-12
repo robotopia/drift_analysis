@@ -520,7 +520,7 @@ class DriftAnalysis(pulsestack.Pulsestack):
     def plot_all_quadratic_fits(self):
         for i in self.quadratic_fits:
             if self.onpulse is None:
-                phlim = self.get_phase_from_bin([0, self.nbins-1])
+                phlim = self.get_phase_from_bin(np.array([0, self.nbins-1]))
             else:
                 phlim = self.onpulse
 
@@ -1235,7 +1235,7 @@ class DriftAnalysisInteractivePlot(DriftAnalysis):
                     # Redraw the affected plots
                     if self.quadratic_visible:
                         if self.onpulse is None:
-                            phlim = self.get_phase_from_bin([0, self.nbins-1])
+                            phlim = self.get_phase_from_bin(np.array([0, self.nbins-1]))
                         else:
                             phlim = self.onpulse
 
@@ -1302,7 +1302,7 @@ class DriftAnalysisInteractivePlot(DriftAnalysis):
 
                 # Update the plot
                 if self.onpulse is None:
-                    phlim = self.get_phase_from_bin([0, self.nbins-1])
+                    phlim = self.get_phase_from_bin(np.array([0, self.nbins-1]))
                 else:
                     phlim = self.onpulse
 
@@ -1371,7 +1371,7 @@ class DriftAnalysisInteractivePlot(DriftAnalysis):
 
                     # Only plot the driftbands in the on pulse region
                     if self.onpulse is None:
-                        phlim = self.get_phase_from_bin([0, self.nbins-1])
+                        phlim = self.get_phase_from_bin(np.array([0, self.nbins-1]))
                     else:
                         phlim = self.onpulse
 
@@ -1381,6 +1381,10 @@ class DriftAnalysisInteractivePlot(DriftAnalysis):
                     self.fig.canvas.draw()
 
             elif event.key == "enter" or event.key == "escape":
+
+                # If they push enter too early, do nothing
+                if event.key == "enter" and len(self.quadratic_selected) < 4:
+                    return
 
                 self.candidate_quadratic_model.clear_all_plots()
 
@@ -1393,7 +1397,7 @@ class DriftAnalysisInteractivePlot(DriftAnalysis):
 
                 # Make sure the saved model (whether old or new) is drawn
                 if self.onpulse is None:
-                    phlim = self.get_phase_from_bin([0, self.nbins-1])
+                    phlim = self.get_phase_from_bin(np.array([0, self.nbins-1]))
                 else:
                     phlim = self.onpulse
 
