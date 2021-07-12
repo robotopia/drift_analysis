@@ -4,6 +4,7 @@ import copy
 import numpy as np
 from numpy.polynomial.polynomial import polyfit, polyval
 
+from mpl_toolkits import mplot3d
 import matplotlib.pyplot as plt
 
 from scipy.interpolate import interp1d
@@ -839,6 +840,7 @@ class DriftAnalysisInteractivePlot(DriftAnalysis):
                 print("@     Perform quadratic fitting via subpulse selection (McSweeney et al, 2017)")
                 print("#     Use all subpulses in sequence to improve quadratic fit")
                 print("$     Plot the drift rate of the quadratic fits against pulse number")
+                print("%     3D plot of drift rate (d) vs d-dot vs pulse number")
 
             elif event.key == "j":
                 self.save_json()
@@ -1059,6 +1061,24 @@ class DriftAnalysisInteractivePlot(DriftAnalysis):
                     dr_ax.plot(pulses, driftrates, 'k')
                 dr_ax.set_xlabel("Pulse number")
                 dr_ax.set_ylabel("Drift rate (deg/pulse)")
+                dr_fig.show()
+
+            elif event.key == "%":
+                dr_fig = plt.figure()
+                dr_ax = plt.axes(projection='3d')
+                p  = [] # Pulse number
+                d  = [] # Drift rate
+                dd = [] # Derivative of drift rate (w.r.t. pulse number)
+                for seq in self.quadratic_fits:
+                    p_lo, p_hi = self.quadratic_fits[seq].get_pulse_idx_bounds()
+                    p.append(self.get_pulse_from_bin(0.5*(p_lo + p_hi)))
+                    d.append(self.quadratic_fits[seq].calc_driftrate(p[-1]))
+                    a1 = self.quadratic_fits[seq].parameters[0]
+                    dd.append(2*a1)
+                    dr_ax.plot(p, d, dd, 'ro')
+                dr_ax.set_xlabel("Pulse number")
+                dr_ax.set_ylabel("Drift rate (deg/pulse)")
+                dr_ax.set_zlabel("Drift rate derivative (deg/pulse^2)")
                 dr_fig.show()
 
             '''
