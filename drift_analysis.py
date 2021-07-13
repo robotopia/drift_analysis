@@ -1,4 +1,4 @@
-__version__ = "0.9.1"
+__version__ = "0.9.2"
 
 import sys
 import copy
@@ -258,6 +258,8 @@ class ModelFit(pulsestack.Pulsestack):
         self.first_pulse_idx = None
         self.last_pulse_idx  = None
 
+        self.model_name = None
+
         # A dictionary for keeping track of line plot objects
         # Dictioney keys are intended to be driftband numbers
         self.driftband_plts = {}
@@ -293,12 +295,16 @@ class ModelFit(pulsestack.Pulsestack):
         self.parameters = np.linalg.pinv(XTX) @ XTY
 
     def serialize(self):
-        return [list(self.parameters), self.first_pulse_idx, self.last_pulse_idx]
+        return [list(self.parameters),
+                self.first_pulse_idx,
+                self.last_pulse_idx,
+                self.model_name]
 
     def unserialize(self, data):
         self.parameters      = data[0]
         self.first_pulse_idx = data[1]
         self.last_pulse_idx  = data[2]
+        self.model_name      = data[3]
 
     def calc_phase(self, pulse, driftband):
         a1, a2, a3, a4 = self.parameters
@@ -466,7 +472,7 @@ class DriftAnalysis(pulsestack.Pulsestack):
                 "subpulses_width":     list(self.subpulses.get_widths()),
                 "subpulses_driftband": list(self.subpulses.get_driftbands()),
 
-                "quadratic_fits":      [[int(i), self.model_fits[i].serialize()] for i in self.model_fits],
+                "model_fits":          [[int(i), self.model_fits[i].serialize()] for i in self.model_fits],
 
                 "maxima_threshold":    self.maxima_threshold,
                 "subpulses_fmt":       self.subpulses_fmt,
@@ -507,7 +513,7 @@ class DriftAnalysis(pulsestack.Pulsestack):
 
         self.subpulses.add_subpulses(subpulses_phase, subpulses_pulse, subpulses_width, subpulses_driftband)
 
-        for item in drift_dict["quadratic_fits"]:
+        for item in drift_dict["model_fits"]:
             self.model_fits[item[0]] = ModelFit()
             self.model_fits[item[0]].unserialize(item[1])
 
