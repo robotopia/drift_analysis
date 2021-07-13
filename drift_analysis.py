@@ -264,6 +264,9 @@ class ModelFit(pulsestack.Pulsestack):
         # Dictioney keys are intended to be driftband numbers
         self.driftband_plts = {}
 
+    def print_unrecognised_model_error(self):
+        print("Unrecognised model '" + self.model_name + "'")
+
     def set_pulse_bounds(self, first_pulse_idx, last_pulse_idx):
         self.first_pulse_idx = first_pulse_idx
         self.last_pulse_idx  = last_pulse_idx
@@ -279,16 +282,16 @@ class ModelFit(pulsestack.Pulsestack):
             return
 
         # Form the matrices for least squares fitting
-        # The model parameters are:
-        #   self.parameters = [a1, a2, a3, a4]
-        # where
-        #   ph = a1*p^2 + a2*p + a3 + a4*d
         ph = np.array(phases)
         p  = np.array(pulses)
         d  = np.array(driftbands)
 
         Y  = ph
-        X  = np.array([p**2, p, np.ones(p.shape), d]).T
+        if self.model_name == "quadratic":
+            X  = np.array([p**2, p, np.ones(p.shape), d]).T
+        else:
+            self.print_unrecognised_model_error()
+            return
 
         XTX = X.T @ X
         XTY = X.T @ Y
@@ -307,33 +310,52 @@ class ModelFit(pulsestack.Pulsestack):
         self.model_name      = data[3]
 
     def calc_phase(self, pulse, driftband):
-        a1, a2, a3, a4 = self.parameters
         p = pulse
         d = driftband
-        return a1*p**2 + a2*p + a3 + a4*d
+        if self.model_name == "quadratic":
+            a1, a2, a3, a4 = self.parameters
+            return a1*p**2 + a2*p + a3 + a4*d
+        else:
+            self.print_unrecognised_model_error()
+            return
 
     def calc_driftrate(self, pulse):
         a1, a2, _, _ = self.parameters
-        return 2*a1*pulse + a2
+        if self.model_name == "quadratic":
+            a1, a2, _, _ = self.parameters
+            return 2*a1*pulse + a2
+        else:
+            self.print_unrecognised_model_error()
+            return
 
     def calc_driftrate_derivative(self, pulse):
         '''
         Returns the driftrate derivative w.r.t. pulse
         '''
-        a1, _, _, _ = self.parameters
-        return 2*a1
+        if self.model_name == "quadratic":
+            a1, _, _, _ = self.parameters
+            return 2*a1
+        else:
+            self.print_unrecognised_model_error()
+            return
 
     def get_nearest_driftband(self, pulse, phase):
-        a1, a2, a3, a4 = self.parameters
-        driftband = np.round((phase - a1*pulse**2 - a2*pulse - a3)/a4)
-        return driftband
+        if self.model_name == "quadratic":
+            a1, a2, a3, a4 = self.parameters
+            return np.round((phase - a1*pulse**2 - a2*pulse - a3)/a4)
+        else:
+            self.print_unrecognised_model_error()
+            return
 
     def calc_P2(self):
-        return self.parameters[3]
+        if self.model_name == "quadratic":
+            _, _, _, a4 = self.parameters
+            return a4
+        else:
+            self.print_unrecognised_model_error()
+            return
 
     def get_driftband_range(self, phlim, idx2pulse_func):
-        a1, a2, a3, a4 = self.parameters
-
         # Figure out if drift rate is positive or negative (at the first pulse)
         first_p = idx2pulse_func(self.first_pulse_idx)
         last_p  = idx2pulse_func(self.last_pulse_idx)
@@ -348,8 +370,13 @@ class ModelFit(pulsestack.Pulsestack):
         else:
             last_ph  = phlim[0]
 
-        first_d = np.ceil((first_ph - a1*first_p**2 - a2*first_p - a3)/a4)
-        last_d  = np.floor((last_ph - a1*last_p**2 - a2*last_p - a3)/a4)
+        if self.model_name == "quadratic":
+            a1, a2, a3, a4 = self.parameters
+            first_d = np.ceil((first_ph - a1*first_p**2 - a2*first_p - a3)/a4)
+            last_d  = np.floor((last_ph - a1*last_p**2 - a2*last_p - a3)/a4)
+        else:
+            self.print_unrecognised_model_error()
+            return
 
         return int(first_d), int(last_d)
 
