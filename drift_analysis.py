@@ -11,6 +11,7 @@ import matplotlib.pyplot as plt
 
 from scipy.interpolate import interp1d
 from scipy.ndimage import gaussian_filter1d
+from scipy.optimize import curve_fit
 
 import tkinter
 import tkinter.filedialog
@@ -310,24 +311,48 @@ class ModelFit(pulsestack.Pulsestack):
         self.model_name  = data[3]
 
     def calc_phase(self, pulse, driftband):
-        p = pulse
-        d = driftband
+        p  = pulse
+        d  = driftband
+        p0 = self.first_pulse
+
         if self.model_name == "quadratic":
             # See McSweeney et al. (2017)
             a1, a2, a3, a4 = self.parameters
             return a1*p**2 + a2*p + a3 + a4*d
-        #elif self.model_name == "exponential":
-        #    D0, k, phi0, P2 = self.parameters
-        #    return (D0/k)*(1 - np.exp(-k*(pulse - self.first_pulse
+
+        elif self.model_name == "exponential":
+            D0, k, phi0, P2 = self.parameters
+            return (D0/k)*(1 - np.exp(-k*(p - p0))) + phi0 + P2*d
+
         else:
             self.print_unrecognised_model_error()
             return
 
+    def calc_phase_for_curvefit(xdata, *params):
+        '''
+        A wrapper for calc_phase(), so that it can be used with scipy's curvefit
+        '''
+
+        p = xdata[0,:]
+        d = xdata[1,:]
+
+        model = copy.copy(self)
+        model.parameters = np.array(*params)
+
+        return model.calc_phase(p, d)
+
     def calc_driftrate(self, pulse):
-        a1, a2, _, _ = self.parameters
+        p  = pulse
+        p0 = self.first_pulse
+
         if self.model_name == "quadratic":
             a1, a2, _, _ = self.parameters
-            return 2*a1*pulse + a2
+            return 2*a1*p + a2
+
+        elif self.model_name == "exponential":
+            D0, k, _, _ = self.parameters
+            return D0*np.exp(-k*(p - p0))
+
         else:
             self.print_unrecognised_model_error()
             return
@@ -336,9 +361,17 @@ class ModelFit(pulsestack.Pulsestack):
         '''
         Returns the driftrate derivative w.r.t. pulse
         '''
+        p  = pulse
+        p0 = self.first_pulse
+
         if self.model_name == "quadratic":
             a1, _, _, _ = self.parameters
             return 2*a1
+
+        elif self.model_name == "exponential":
+            D0, k, _, _ = self.parameters
+            return -k*D0*np.exp(-k*(p - p0))  # also could write -k*self.calc_driftrate(p)
+
         else:
             self.print_unrecognised_model_error()
             return
@@ -346,17 +379,29 @@ class ModelFit(pulsestack.Pulsestack):
     def get_nearest_driftband(self, pulse, phase):
         p  = pulse
         ph = phase
+
         if self.model_name == "quadratic":
             a1, a2, a3, a4 = self.parameters
             return np.round((ph - a1*p**2 - a2*p - a3)/a4)
+
+        elif self.model_name == "exponential":
+            D0, k, phi0, P2 = self.parameters
+            return np.round((ph - (D0/k)*(1 - np.exp(-k*(p - p0))) - phi0)/P2)
+
         else:
             self.print_unrecognised_model_error()
             return
 
     def calc_P2(self):
+
         if self.model_name == "quadratic":
             _, _, _, a4 = self.parameters
             return a4
+
+        elif self.model_name == "exponential":
+            _, _, _, P2 = self.parameters
+            return P2
+
         else:
             self.print_unrecognised_model_error()
             return
