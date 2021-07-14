@@ -286,16 +286,17 @@ class ModelFit(pulsestack.Pulsestack):
         p  = np.array(pulses)
         d  = np.array(driftbands)
 
-        Y  = ph
         if self.model_name == "quadratic":
-            X  = np.array([p**2, p, np.ones(p.shape), d]).T
+            Y   = ph
+            X   = np.array([p**2, p, np.ones(p.shape), d]).T
+            XTX = X.T @ X
+            XTY = X.T @ Y
+            self.parameters = np.linalg.pinv(XTX) @ XTY
+        #elif self.model_name == "exponential":
+            #X  = 
         else:
             self.print_unrecognised_model_error()
             return
-
-        XTX = X.T @ X
-        XTY = X.T @ Y
-        self.parameters = np.linalg.pinv(XTX) @ XTY
 
     def serialize(self):
         return [list(self.parameters),
