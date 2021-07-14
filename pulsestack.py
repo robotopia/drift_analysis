@@ -46,22 +46,18 @@ class Pulsestack:
 
     def get_pulse_bin(self, pulse, inrange=True):
         # This can return fractional (non-integer) values
-        pulse_bin = (pulse - self.first_pulse)/self.dpulse
+        pulse_bin = (np.array(pulse) - self.first_pulse)/self.dpulse
         if inrange == True:
-            if pulse_bin < 0:
-                pulse_bin = 0
-            elif pulse_bin > self.values.shape[0] - 1:
-                pulse_bin = self.values.shape[0] - 1
+            pulse_bin[pulse_bin < 0] = 0
+            pulse_bin[pulse_bin > self.values.shape[0] - 1] = self.values.shape[0] - 1
         return pulse_bin
 
     def get_phase_bin(self, phase_deg, inrange=True):
         # This can return fractional (non-integer) values
-        phase_deg_bin = (phase_deg - self.first_phase)/self.dphase_deg
+        phase_deg_bin = (np.array(phase_deg) - self.first_phase)/self.dphase_deg
         if inrange == True:
-            if phase_deg_bin < 0:
-                phase_deg_bin = 0
-            elif phase_deg_bin > self.values.shape[1] - 1:
-                phase_deg_bin = self.values.shape[1] - 1
+            phase_deg_bin[phase_deg_bin < 0] = 0
+            phase_deg_bin[phase_deg_bin > self.values.shape[1] - 1] = self.values.shape[1] - 1
         return phase_deg_bin
 
     def get_pulse_from_bin(self, pulse_bin):
