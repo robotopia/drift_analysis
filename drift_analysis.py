@@ -152,14 +152,14 @@ class Subpulses:
         p_lo, p_hi = pulse_range
         return np.logical_and(p >= p_lo, p <= p_hi)
 
-    def assign_quadratic_driftbands_to_subpulses(self, model_fit, idx2pulse_func):
+    def assign_driftbands_to_subpulses(self, model_fit, idx2pulse_func):
         '''
         model_fit - an object of ModelFit
         This will classify each subpulse in the appropriate pulse range
         into a driftband according to the given model.
         '''
         # Get only those subpulses within the valid range of the quadratic fit
-        pulse_range = idx2pulse_func(np.array(model_fit.get_pulse_idx_bounds()))
+        pulse_range = np.array(model_fit.get_pulse_bounds())
         subset = self.in_pulse_range(pulse_range)
 
         ph = self.get_phases(subset=subset)
@@ -211,7 +211,7 @@ class DriftSequences:
         else:
             last_idx = self.boundaries[sequence_idx]
 
-        return first_idx, last_idx
+        return [first_idx, last_idx]
 
     def is_pulse_in_sequence(self, sequence_idx, pulse_idx, npulses):
         first_idx, last_idx = self.get_bounding_pulse_idxs(sequence_idx, npulses)
@@ -252,11 +252,10 @@ class DriftSequences:
 
 class ModelFit(pulsestack.Pulsestack):
     def __init__(self):
-        # For the meaning of these variables, refer to McSweeney et al. (2017)
         self.parameters = None
 
-        self.first_pulse_idx = None
-        self.last_pulse_idx  = None
+        self.first_pulse = None
+        self.last_pulse  = None
 
         self.model_name = None
 
@@ -267,12 +266,12 @@ class ModelFit(pulsestack.Pulsestack):
     def print_unrecognised_model_error(self):
         print("Unrecognised model '" + self.model_name + "'")
 
-    def set_pulse_bounds(self, first_pulse_idx, last_pulse_idx):
-        self.first_pulse_idx = first_pulse_idx
-        self.last_pulse_idx  = last_pulse_idx
+    def set_pulse_bounds(self, first_pulse, last_pulse):
+        self.first_pulse = first_pulse
+        self.last_pulse  = last_pulse
 
-    def get_pulse_idx_bounds(self):
-        return [self.first_pulse_idx, self.last_pulse_idx]
+    def get_pulse_bounds(self):
+        return [self.first_pulse, self.last_pulse]
 
     def least_squares_fit_to_subpulses(self, phases, pulses, driftbands):
         # phases, pulses, and driftbands must be vectors with the same length
@@ -300,22 +299,26 @@ class ModelFit(pulsestack.Pulsestack):
 
     def serialize(self):
         return [list(self.parameters),
-                self.first_pulse_idx,
-                self.last_pulse_idx,
+                self.first_pulse,
+                self.last_pulse,
                 self.model_name]
 
     def unserialize(self, data):
-        self.parameters      = data[0]
-        self.first_pulse_idx = data[1]
-        self.last_pulse_idx  = data[2]
-        self.model_name      = data[3]
+        self.parameters  = data[0]
+        self.first_pulse = data[1]
+        self.last_pulse  = data[2]
+        self.model_name  = data[3]
 
     def calc_phase(self, pulse, driftband):
         p = pulse
         d = driftband
         if self.model_name == "quadratic":
+            # See McSweeney et al. (2017)
             a1, a2, a3, a4 = self.parameters
             return a1*p**2 + a2*p + a3 + a4*d
+        #elif self.model_name == "exponential":
+        #    D0, k, phi0, P2 = self.parameters
+        #    return (D0/k)*(1 - np.exp(-k*(pulse - self.first_pulse
         else:
             self.print_unrecognised_model_error()
             return
@@ -341,9 +344,11 @@ class ModelFit(pulsestack.Pulsestack):
             return
 
     def get_nearest_driftband(self, pulse, phase):
+        p  = pulse
+        ph = phase
         if self.model_name == "quadratic":
             a1, a2, a3, a4 = self.parameters
-            return np.round((phase - a1*pulse**2 - a2*pulse - a3)/a4)
+            return np.round((ph - a1*p**2 - a2*p - a3)/a4)
         else:
             self.print_unrecognised_model_error()
             return
@@ -356,39 +361,39 @@ class ModelFit(pulsestack.Pulsestack):
             self.print_unrecognised_model_error()
             return
 
-    def get_driftband_range(self, phlim, idx2pulse_func):
+    def get_driftband_range(self, phlim):
         # Figure out if drift rate is positive or negative (at the first pulse)
-        first_p = idx2pulse_func(self.first_pulse_idx)
-        last_p  = idx2pulse_func(self.last_pulse_idx)
+        p0 = self.first_pulse
+        pf = self.last_pulse
 
-        if self.calc_driftrate(first_p) < 0:
-            first_ph = phlim[0]
+        if self.calc_driftrate(p0) < 0:
+            ph0 = phlim[0]
         else:
-            first_ph = phlim[1]
+            ph0 = phlim[1]
 
-        if self.calc_driftrate(last_p) < 0:
-            last_ph  = phlim[1]
+        if self.calc_driftrate(pf) < 0:
+            phf  = phlim[1]
         else:
-            last_ph  = phlim[0]
+            phf  = phlim[0]
 
         if self.model_name == "quadratic":
             a1, a2, a3, a4 = self.parameters
-            first_d = np.ceil((first_ph - a1*first_p**2 - a2*first_p - a3)/a4)
-            last_d  = np.floor((last_ph - a1*last_p**2 - a2*last_p - a3)/a4)
+            d0 = np.ceil((ph0 - a1*p0**2 - a2*p0 - a3)/a4)
+            df = np.floor((phf - a1*pf**2 - a2*pf - a3)/a4)
         else:
             self.print_unrecognised_model_error()
             return
 
-        return int(first_d), int(last_d)
+        return [int(d0), int(df)]
 
-    def plot_driftband(self, ax, driftband, idx2pulse_func, phlim=None, **kwargs):
+    def plot_driftband(self, ax, driftband, phlim=None, pstep=1, **kwargs):
         '''
         driftband: driftband number to plot
         phlim: phase limits between which to draw the driftband
         '''
         d = driftband
 
-        p = idx2pulse_func(np.arange(self.first_pulse_idx, self.last_pulse_idx+1))
+        p = np.arange(self.first_pulse, self.last_pulse, pstep)
         ph = self.calc_phase(p, d)
 
         if phlim is not None:
@@ -408,10 +413,10 @@ class ModelFit(pulsestack.Pulsestack):
         else:
             self.driftband_plts[d] = ax.plot(ph, p, **kwargs)
 
-    def plot_all_driftbands(self, ax, phlim, idx2pulse_func, **kwargs):
-        first_d, last_d = self.get_driftband_range(phlim, idx2pulse_func)
+    def plot_all_driftbands(self, ax, phlim, pstep=1, **kwargs):
+        first_d, last_d = self.get_driftband_range(phlim)
         for d in range(first_d, last_d+1):
-            self.plot_driftband(ax, d, idx2pulse_func, phlim=phlim, **kwargs)
+            self.plot_driftband(ax, d, phlim=phlim, pstep=pstep, **kwargs)
 
     def clear_all_plots(self):
         for d in self.driftband_plts:
@@ -576,7 +581,7 @@ class DriftAnalysis(pulsestack.Pulsestack):
             else:
                 phlim = self.onpulse
 
-            self.model_fits[i].plot_all_driftbands(self.ax, phlim, self.get_pulse_from_bin, color='k')
+            self.model_fits[i].plot_all_driftbands(self.ax, phlim, pstep=self.dpulse, color='k')
 
     def unplot_all_model_fits(self):
         for i in self.model_fits:
@@ -1105,8 +1110,9 @@ class DriftAnalysisInteractivePlot(DriftAnalysis):
             elif event.key == "$":
                 dr_fig, dr_ax = plt.subplots()
                 for seq in self.model_fits:
-                    p_lo, p_hi = self.model_fits[seq].get_pulse_idx_bounds()
-                    pulse_idxs = np.arange(p_lo, p_hi + 1)
+                    p_lo, p_hi = self.model_fits[seq].get_pulse_bounds()
+                    pulse_idx_range = self.get_pulse_bin([p_lo, p_hi])
+                    pulse_idxs = np.arange(pulse_idx_range[0], pulse_idx_range[1] + 1)
                     pulses     = self.get_pulse_from_bin(pulse_idxs)
                     driftrates = self.model_fits[seq].calc_driftrate(pulses)
                     dr_ax.plot(pulses, driftrates, 'k')
@@ -1121,8 +1127,8 @@ class DriftAnalysisInteractivePlot(DriftAnalysis):
                 d  = [] # Drift rate
                 dd = [] # Derivative of drift rate (w.r.t. pulse number)
                 for seq in self.model_fits:
-                    p_lo, p_hi = self.model_fits[seq].get_pulse_idx_bounds()
-                    p.append(self.get_pulse_from_bin(0.5*(p_lo + p_hi)))
+                    p_lo, p_hi = self.model_fits[seq].get_pulse_bounds()
+                    p.append(0.5*(p_lo + p_hi))
                     d.append(self.model_fits[seq].calc_driftrate(p[-1]))
                     dd.append(self.model_fits[seq].calc_driftrate_derivative(p[-1]))
                     dr_ax.plot(p, d, dd, 'ro')
@@ -1323,10 +1329,10 @@ class DriftAnalysisInteractivePlot(DriftAnalysis):
                             phlim = self.onpulse
 
                         self.model_fits[seq].clear_all_plots()
-                        self.model_fits[seq].plot_all_driftbands(self.ax, phlim, self.get_pulse_from_bin, color='k')
+                        self.model_fits[seq].plot_all_driftbands(self.ax, phlim, pstep=self.dpulse, color='k')
 
                         self.model_fits[seq+1].clear_all_plots()
-                        self.model_fits[seq+1].plot_all_driftbands(self.ax, phlim, self.get_pulse_from_bin, color='k')
+                        self.model_fits[seq+1].plot_all_driftbands(self.ax, phlim, pstep=self.dpulse, color='k')
 
                 # Now actually add the boundary
                 self.drift_sequences.add_boundary(self.selected)
@@ -1354,11 +1360,11 @@ class DriftAnalysisInteractivePlot(DriftAnalysis):
                     return
 
                 # Here, "selected" refers to the drift sequence number
-                first_pulse, last_pulse = self.drift_sequences.get_bounding_pulse_idxs(self.selected, self.npulses)
+                first_pulse_idx, last_pulse_idx = self.drift_sequences.get_bounding_pulse_idxs(self.selected, self.npulses)
 
                 # Set the zoom (only in y-direction)
-                ylo = self.get_pulse_from_bin(first_pulse - 0.5)
-                yhi = self.get_pulse_from_bin(last_pulse + 0.5)
+                ylo = self.get_pulse_from_bin(first_pulse_idx - 0.5)
+                yhi = self.get_pulse_from_bin(last_pulse_idx + 0.5)
                 self.ax.set_ylim([ylo, yhi])
 
                 self.deselect()
@@ -1375,7 +1381,7 @@ class DriftAnalysisInteractivePlot(DriftAnalysis):
                     return
 
                 # Assign each subpulse in sequence to the nearest driftband
-                subset = self.subpulses.assign_quadratic_driftbands_to_subpulses(self.model_fits[self.selected], self.get_pulse_from_bin)
+                subset = self.subpulses.assign_driftbands_to_subpulses(self.model_fits[self.selected], self.get_pulse_from_bin)
 
                 # Now use ALL the subpulses in the sequence to get an improved fit
                 ph = self.subpulses.get_phases(subset=subset)
@@ -1389,7 +1395,7 @@ class DriftAnalysisInteractivePlot(DriftAnalysis):
                 else:
                     phlim = self.onpulse
 
-                self.model_fits[self.selected].plot_all_driftbands(self.ax, phlim, self.get_pulse_from_bin, color='k')
+                self.model_fits[self.selected].plot_all_driftbands(self.ax, phlim, pstep=self.dpulse, color='k')
 
                 # Mark that unsaved changes have been made
                 if self.jsonfile is not None:
@@ -1449,8 +1455,9 @@ class DriftAnalysisInteractivePlot(DriftAnalysis):
 
                 if len(self.quadratic_selected) >= 4:
                     self.candidate_quadratic_model.least_squares_fit_to_subpulses(ph, p, d)
-                    first_pulse_idx, last_pulse_idx = self.drift_sequences.get_bounding_pulse_idxs(self.drift_sequence_selected, self.npulses)
-                    self.candidate_quadratic_model.set_pulse_bounds(first_pulse_idx, last_pulse_idx)
+                    pulse_idx_range = self.drift_sequences.get_bounding_pulse_idxs(self.drift_sequence_selected, self.npulses)
+                    first_pulse, last_pulse = self.get_pulse_from_bin(np.array(pulse_idx_range))
+                    self.candidate_quadratic_model.set_pulse_bounds(first_pulse, last_pulse)
 
                     # Only plot the driftbands in the on pulse region
                     if self.onpulse is None:
@@ -1460,7 +1467,7 @@ class DriftAnalysisInteractivePlot(DriftAnalysis):
 
                     # Clear all previous driftbands from the plot and replace them with new ones!
                     self.candidate_quadratic_model.clear_all_plots()
-                    self.candidate_quadratic_model.plot_all_driftbands(self.ax, phlim, self.get_pulse_from_bin, color='w')
+                    self.candidate_quadratic_model.plot_all_driftbands(self.ax, phlim, pstep=self.dpulse, color='w')
                     self.fig.canvas.draw()
 
             elif event.key == "enter" or event.key == "escape":
@@ -1485,7 +1492,7 @@ class DriftAnalysisInteractivePlot(DriftAnalysis):
                     phlim = self.onpulse
 
                 if self.drift_sequence_selected in self.model_fits.keys():
-                    self.model_fits[self.drift_sequence_selected].plot_all_driftbands(self.ax, phlim, self.get_pulse_from_bin, color='k')
+                    self.model_fits[self.drift_sequence_selected].plot_all_driftbands(self.ax, phlim, pstep=self.dpulse, color='k')
 
                 if self.quadratic_selected_plt is not None:
                     self.quadratic_selected_plt[0].set_data([], [])
