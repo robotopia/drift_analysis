@@ -1,4 +1,4 @@
-__version__ = "0.9.4"
+__version__ = "0.9.5"
 
 import sys
 import copy
@@ -648,15 +648,7 @@ class DriftAnalysis(pulsestack.Pulsestack):
 
         drift_dict = {
                 "version":             __version__,
-                "pdvfile":             self.pdvfile,
-                "stokes":              self.stokes,
-                "npulses":             self.npulses,
-                "nbins":               self.nbins,
-                "first_pulse":         self.first_pulse,
-                "first_phase":         self.first_phase,
-                "dpulse":              self.dpulse,
-                "dphase_deg":          self.dphase_deg,
-                "onpulse":             self.serialize_onpulse(),
+                "pulsestack":          self.serialize(),
 
                 "subpulses_pulse":     list(self.subpulses.get_pulses()),
                 "subpulses_phase":     list(self.subpulses.get_phases()),
@@ -667,8 +659,7 @@ class DriftAnalysis(pulsestack.Pulsestack):
 
                 "maxima_threshold":    self.maxima_threshold,
                 "subpulses_fmt":       self.subpulses_fmt,
-                "drift_mode_boundaries": self.drift_sequences.boundaries,
-                "values":              list(self.values.flatten())
+                "drift_mode_boundaries": self.drift_sequences.boundaries
                 }
 
         with open(jsonfile, "w") as f:
@@ -687,15 +678,8 @@ class DriftAnalysis(pulsestack.Pulsestack):
         if drift_dict["version"] != __version__:
             print("Warning: version mismatch, File = {}, Software = {}".format(drift_dict["version"], __version__))
 
-        self.pdvfile          = drift_dict["pdvfile"]
-        self.stokes           = drift_dict["stokes"]
-        self.npulses          = drift_dict["npulses"]
-        self.nbins            = drift_dict["nbins"]
-        self.first_pulse      = drift_dict["first_pulse"]
-        self.first_phase      = drift_dict["first_phase"]
-        self.dpulse           = drift_dict["dpulse"]
-        self.dphase_deg       = drift_dict["dphase_deg"]
-        self.set_onpulse(drift_dict["onpulse"])
+        # Load the pulsestack data
+        self.unserialize(drift_dict["pulsestack"])
 
         subpulses_pulse       = drift_dict["subpulses_pulse"]
         subpulses_phase       = drift_dict["subpulses_phase"]
@@ -711,7 +695,6 @@ class DriftAnalysis(pulsestack.Pulsestack):
         self.maxima_threshold = drift_dict["maxima_threshold"]
         self.subpulses_fmt    = drift_dict["subpulses_fmt"]
         self.drift_sequences.boundaries = drift_dict["drift_mode_boundaries"]
-        self.values           = np.reshape(drift_dict["values"], (self.npulses, self.nbins))
 
         self.jsonfile = jsonfile
 

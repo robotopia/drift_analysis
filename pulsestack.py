@@ -5,6 +5,104 @@ from scipy.ndimage import gaussian_filter1d
 
 class Pulsestack:
 
+    def __init__(self):
+        self.pdvfile = None
+        self.stokes  = None
+        self.npulses = None
+        self.nbins   = None
+        self.first_pulse = None
+        self.first_phase = None
+        self.dpulse      = None
+        self.dphase_deg  = None
+        self.onpulse     = None
+
+    def serialize(self):
+        serialized = {}
+
+        if self.pdvfile is not None:
+            serialized["pdvfile"] = self.pdvfile
+
+        if self.stokes is not None:
+            serialized["stokes"] = self.stokes
+
+        if self.npulses is not None:
+            serialized["npulses"] = self.npulses
+
+        if self.nbins is not None:
+            serialized["nbins"] = self.nbins
+
+        if self.first_pulse is not None:
+            serialized["first_pulse"] = self.first_pulse
+
+        if self.first_phase is not None:
+            serialized["first_phase"] = self.first_phase
+
+        if self.dpulse is not None:
+            serialized["dpulse"] = self.dpulse
+
+        if self.dphase_deg is not None:
+            serialized["dphase_deg"] = self.dphase_deg
+
+        if self.onpulse is not None:
+            serialized["onpulse"] = list(self.onpulse)
+
+        if self.values is not None:
+            serialized["values"] = list(self.values.flatten())
+
+        return serialized
+
+    def unserialize(self, data):
+
+        if "pdvfile" in data.keys():
+            self.pdvfile = data["pdvfile"]
+        else:
+            self.pdvfile = None
+
+        if "stokes" in data.keys():
+            self.stokes = data["stokes"]
+        else:
+            self.stokes = None
+
+        if "npulses" in data.keys():
+            self.npulses = data["npulses"]
+        else:
+            self.npulses = None
+
+        if "nbins" in data.keys():
+            self.nbins = data["nbins"]
+        else:
+            self.nbins = None
+
+        if "first_pulse" in data.keys():
+            self.first_pulse = data["first_pulse"]
+        else:
+            self.first_pulse = None
+
+        if "first_phase" in data.keys():
+            self.first_phase = data["first_phase"]
+        else:
+            self.first_phase = None
+
+        if "dpulse" in data.keys():
+            self.dpulse = data["dpulse"]
+        else:
+            self.dpulse = None
+
+        if "dphase_deg" in data.keys():
+            self.dphase_deg = data["dphase_deg"]
+        else:
+            self.dphase_deg = None
+
+        if "onpulse" in data.keys():
+            self.onpulse = data["onpulse"]
+        else:
+            self.onpulse = None
+
+        if "values" in data.keys() and self.npulses is not None and self.nbins is not None:
+            self.values = np.reshape(data["values"], (self.npulses, self.nbins))
+        else:
+            self.values = None
+
     def load_from_pdv(self, filename, stokes):
         # Read in the pdv data using numpy's handy loadtxt
         self.pdvfile = filename
