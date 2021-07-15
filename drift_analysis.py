@@ -1,4 +1,4 @@
-__version__ = "0.9.6"
+__version__ = "0.9.7"
 
 import sys
 import copy
@@ -31,10 +31,10 @@ class Subpulses:
 
         serialized = {}
         if self.data is not None:
-            serialized["pulses"]     = list(self.get_pulses())
-            serialized["phases"]     = list(self.get_phases())
-            serialized["widths"]     = list(self.get_widths())
-            serialized["driftbands"] = list(self.get_driftbands())
+            serialized["pulses"]     = list(self.get_pulses().astype(float))
+            serialized["phases"]     = list(self.get_phases().astype(float))
+            serialized["widths"]     = list(self.get_widths().astype(float))
+            serialized["driftbands"] = list(self.get_driftbands().astype(float))
 
         return serialized
 
@@ -200,7 +200,21 @@ class Subpulses:
 
 class DriftSequences:
     def __init__(self):
-        self.boundaries = []  # Contains indexes of pulse numbers preceding the boundary
+        self.boundaries = []
+
+    def serialize(self):
+        serialized = {}
+
+        serialized["boundaries"] = list(self.boundaries)
+
+        return serialized
+
+    def unserialize(self, serialized):
+
+        if "boundaries" in serialized.keys():
+            self.boundaries = serialized["boundaries"]
+        else:
+            self.boundaries = []
 
     def number_of_sequences(self):
         return len(self.boundaries) + 1
@@ -216,7 +230,7 @@ class DriftSequences:
             bisect.insort(self.boundaries, pulse_idx)
 
     def delete_boundaries(self, boundary_idxs):
-        self.boundaries = [v for i, v in enumerate(self.boundaries) if i not in boundary_idxs]
+        self.boundaries = [int(v) for i, v in enumerate(self.boundaries) if i not in boundary_idxs]
 
     def get_bounding_pulse_idxs(self, sequence_idx, npulses):
         '''
@@ -428,7 +442,7 @@ class ModelFit(pulsestack.Pulsestack):
             serialized["parameters"] = list(self.parameters)
 
         if self.first_pulse is not None and self.last_pulse is not None:
-            serialized["pulse_range"] = [self.first_pulse, self.last_pulse]
+            serialized["pulse_range"] = [int(self.first_pulse), int(self.last_pulse)]
 
         if self.pcov is not None:
             serialized["pcov"] = list(self.pcov.flatten())
@@ -689,13 +703,17 @@ class DriftAnalysis(pulsestack.Pulsestack):
                 "model_fits":          [[int(i), self.model_fits[i].serialize()] for i in self.model_fits],
 
                 "maxima_threshold":    self.maxima_threshold,
-                "drift_mode_boundaries": self.drift_sequences.boundaries
+                "drift_mode_boundaries": self.drift_sequences.serialize()
                 }
 
-        with open(jsonfile, "w") as f:
-            json.dump(drift_dict, f)
+        try:
+            with open(jsonfile, "w") as f:
+                json.dump(drift_dict, f)
 
-        self.jsonfile = jsonfile
+            self.jsonfile = jsonfile
+
+        except TypeError as err:
+            print("Could not save out json file:", err)
 
     def load_json(self, jsonfile=None):
 
@@ -717,7 +735,7 @@ class DriftAnalysis(pulsestack.Pulsestack):
             self.model_fits[item[0]].unserialize(item[1])
 
         self.maxima_threshold = drift_dict["maxima_threshold"]
-        self.drift_sequences.boundaries = drift_dict["drift_mode_boundaries"]
+        self.drift_sequences.unserialize(drift_dict["drift_mode_boundaries"])
 
         self.jsonfile = jsonfile
 
