@@ -305,6 +305,9 @@ class ModelFit(pulsestack.Pulsestack):
         # Dictioney keys are intended to be driftband numbers
         self.driftband_plts = {}
 
+    def get_nparameters(self):
+        return len(self.get_parameter_names())
+
     def get_parameter_names(self):
         if self.model_name == "quadratic":
             return ["a1", "a2", "a3", "a4"]
@@ -1088,6 +1091,7 @@ class DriftAnalysisInteractivePlot(DriftAnalysis):
                 print("$     Plot the drift rate of the model fits against pulse number")
                 print("&     Plot the driftrate decay rate of the model fits against pulse number")
                 print("%     3D plot of drift rate (d) vs d-dot vs pulse number")
+                print("*     Plot the (exponential) model parameters as a function of pulse number")
                 print("m     Print model parameters to stdout")
 
             elif event.key == "j":
@@ -1346,6 +1350,51 @@ class DriftAnalysisInteractivePlot(DriftAnalysis):
                 dr_ax.set_ylabel("Drift rate (deg/pulse)")
                 dr_ax.set_zlabel("Drift rate derivative (deg/pulse^2)")
                 dr_fig.show()
+
+            elif event.key == "*":
+                # Define what model is going to be plotted here
+                # (Use a dummy object to get the necessary parameters)
+                dummy = ModelFit()
+                dummy.model_name = "exponential"
+                nparameters = dummy.get_nparameters()
+                param_names = dummy.get_parameter_names()
+
+                param_fig, param_axs = plt.subplots(nrows=nparameters, ncols=1, sharex=True)
+
+                pmid       = [] # Central pulse number
+                perr       = [] # X error bar represents size of drift sequence
+                params     = [] # The parameter values
+                param_errs = [] # The errors on the parameter values
+
+                for seq in self.model_fits:
+
+                    # Only plot up exponential parameters
+                    if self.model_fits[seq].model_name != dummy.model_name:
+                        continue
+
+                    # Get the mid pulse and range of the drift sequences
+                    p_lo, p_hi = self.model_fits[seq].get_pulse_bounds()
+                    pmid.append(0.5*(p_hi + p_lo))
+                    perr.append(0.5*(p_hi - p_lo))
+
+                    # Get the parameter values
+                    params.append(self.model_fits[seq].parameters)
+                    if self.model_fits[seq].pcov is not None:
+                        param_errs.append(list(np.sqrt(np.diag(self.model_fits[seq].pcov))))
+                    else:
+                        param_errs.append(np.zeros((nparameters,)))
+
+                # Convert the params and param_errs list-of-lists to Numpy arrays
+                params     = np.array(params)
+                param_errs = np.array(param_errs)
+
+                # Plot everything up!
+                for i in range(nparameters):
+                    param_axs[i].errorbar(pmid, params[:,i], xerr=perr, yerr=param_errs[:,i], fmt='.')
+                    param_axs[i].set_ylabel(param_names[i])
+                param_axs[-1].set_xlabel("Pulse number")
+
+                param_fig.show()
 
             elif event.key == "E":
                 self.ax.set_title("Select a drift sequence by clicking on the pulsestack.\nPress enter to confirm, esc to cancel.")
