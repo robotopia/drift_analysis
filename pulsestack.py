@@ -142,6 +142,9 @@ class Pulsestack:
         self.dpulse     = 1 # i.e. 1 pulse per row
         self.dphase_deg = 360/self.nbins
 
+    def set_onpulse(self, ph_lo, ph_hi):
+        self.onpulse = [ph_lo, ph_hi]
+
     def get_pulse_bin(self, pulse, inrange=True):
         # This can return fractional (non-integer) values
         pulse_bin = (np.array(pulse) - self.first_pulse)/self.dpulse

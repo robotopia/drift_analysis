@@ -597,18 +597,6 @@ class DriftAnalysis(pulsestack.Pulsestack):
         self.model_fits            = {}  # Keys = drift sequence numbers
         self.quadratic_visible         = True
 
-    def set_onpulse(self, phlim):
-        if phlim == []:
-            self.onpulse = None
-        else:
-            self.onpulse = phlim
-
-    def serialize_onpulse(self):
-        if self.onpulse is None:
-            return []
-        else:
-            return self.onpulse
-
     def get_local_maxima(self, maxima_threshold=None):
         if maxima_threshold is None:
             maxima_threshold = self.maxima_threshold
@@ -941,7 +929,7 @@ class DriftAnalysisInteractivePlot(DriftAnalysis):
         elif self.mode == "set_onpulse_trailing":
             if event.inaxes == self.ax:
                 self.ph_hi = event.xdata
-                self.set_onpulse([self.ph_lo, self.ph_hi])
+                self.set_onpulse(self.ph_lo, self.ph_hi)
 
                 # Add the * to the window title
                 if self.jsonfile is not None:
