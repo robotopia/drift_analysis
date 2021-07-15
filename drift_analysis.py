@@ -291,13 +291,37 @@ class ModelFit(pulsestack.Pulsestack):
         # Dictioney keys are intended to be driftband numbers
         self.driftband_plts = {}
 
-    def __str__(self):
+    def get_parameter_names(self):
         if self.model_name == "quadratic":
-            return "Model: {} (phi = a1*p^2 + a2*p + a3 + a4*d) \nPulse range: {:.1f} - {:.1f}\n  a1 = {}\n  a2 = {}\n  a3 = {}\n  a4 = {}".format(self.model_name, self.first_pulse, self.last_pulse, *self.parameters)
+            return ["a1", "a2", "a3", "a4"]
         elif self.model_name == "exponential":
-            return "Model: {} (phi = (D0/k)*(1 - exp(-k*(p - p0)) + phi0 + P2*d)\nPulse range: {:.1f} - {:.1f}\n  D0   = {}\n  k =    {}\n  phi0 = {}\n  P2   = {}".format(self.model_name, self.first_pulse, self.last_pulse, *self.parameters)
+            return ["D0", "k", "phi0", "P2"]
+        else:
+            self.print_unecognised_model_error()
+
+    def get_parameter_by_name(self, parameter_name):
+        try:
+            idx = self.get_parameter_names().index(parameter_name)
+            return self.parameters[idx]
+        except:
+            return None
+
+    def __str__(self):
+
+        if self.model_name == "quadratic":
+            equation_string = "phi = a1*p^2 + a2*p + a3 + a4*d"
+        elif self.model_name == "exponential":
+            equation_string = "phi = (D0/k)*(1 - exp(-k*(p - p0)) + phi0 + P2*d)"
         else:
             return "Unrecognised model '{}'".format(self.model)
+
+        model_string = "Model: {} ({})\nPulse range: {:.1f} - {:.1f}\n".format(self.model_name, equation_string, self.first_pulse, self.last_pulse)
+
+        parameter_names = self.get_parameter_names()
+        for i in range(len(self.parameters)):
+            model_string += "  {:4} = {}\n".format(parameter_names[i], self.parameters[i])
+
+        return model_string
 
     def print_unrecognised_model_error(self):
         print("Unrecognised model '" + self.model_name + "'")
