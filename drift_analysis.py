@@ -1,4 +1,4 @@
-__version__ = "0.9.5"
+__version__ = "0.9.6"
 
 import sys
 import copy
@@ -25,7 +25,26 @@ class Subpulses:
 
     def __init__(self):
 
-        self.delete_all_subpulses() # Apart from deleting, this also initialises everything
+        self.data = None
+
+    def serialize(self):
+
+        serialized = {}
+        if self.data is not None:
+            serialized["pulses"]     = list(self.get_pulses())
+            serialized["phases"]     = list(self.get_phases())
+            serialized["widths"]     = list(self.get_widths())
+            serialized["driftbands"] = list(self.get_driftbands())
+
+        return serialized
+
+    def unserialize(self, serialized):
+        pulses       = serialized["pulses"]
+        phases       = serialized["phases"]
+        widths       = serialized["widths"]
+        driftbands   = serialized["driftbands"]
+
+        self.add_subpulses(phases, pulses, widths=widths, driftbands=driftbands)
 
     def add_subpulses(self, phases, pulses, widths=None, driftbands=None):
         if len(phases) != len(pulses):
@@ -51,20 +70,20 @@ class Subpulses:
             return
 
         newsubpulses = np.transpose([phases, pulses, widths, driftbands])
-        self.data = np.vstack((self.data, newsubpulses))
 
-        # Keep track of the number of subpulses
-        self.nsubpulses = self.data.shape[0]
+        if self.data is None:
+            self.data = newsubpulses
+        else:
+            self.data = np.vstack((self.data, newsubpulses))
 
     def delete_subpulses(self, delete_idxs):
         self.data = np.delete(self.data, delete_idxs, axis=0)
-        self.nsubpulses = self.data.shape[0]
 
     def delete_all_subpulses(self):
-        self.nsubpulses  = 0
-        self.nproperties = 4
+        self.data = None
 
-        self.data = np.full((self.nsubpulses, self.nproperties), np.nan)
+    def get_nsubpulses(self):
+        return self.data.shape[0]
 
     def get_phases(self, subset=None):
         if subset is None:
@@ -586,7 +605,6 @@ class DriftAnalysis(pulsestack.Pulsestack):
         self.ax                        = None
         self.subpulses                 = Subpulses()
         self.subpulses_plt             = None
-        self.subpulses_fmt             = 'gx'
         self.maxima_threshold          = 0.0
         self.drift_sequences           = DriftSequences()
         self.dm_boundary_plt           = None
@@ -637,16 +655,10 @@ class DriftAnalysis(pulsestack.Pulsestack):
         drift_dict = {
                 "version":             __version__,
                 "pulsestack":          self.serialize(),
-
-                "subpulses_pulse":     list(self.subpulses.get_pulses()),
-                "subpulses_phase":     list(self.subpulses.get_phases()),
-                "subpulses_width":     list(self.subpulses.get_widths()),
-                "subpulses_driftband": list(self.subpulses.get_driftbands()),
-
+                "subpulses":           self.subpulses.serialize(),
                 "model_fits":          [[int(i), self.model_fits[i].serialize()] for i in self.model_fits],
 
                 "maxima_threshold":    self.maxima_threshold,
-                "subpulses_fmt":       self.subpulses_fmt,
                 "drift_mode_boundaries": self.drift_sequences.boundaries
                 }
 
@@ -668,20 +680,13 @@ class DriftAnalysis(pulsestack.Pulsestack):
 
         # Load the pulsestack data
         self.unserialize(drift_dict["pulsestack"])
-
-        subpulses_pulse       = drift_dict["subpulses_pulse"]
-        subpulses_phase       = drift_dict["subpulses_phase"]
-        subpulses_width       = drift_dict["subpulses_width"]
-        subpulses_driftband   = drift_dict["subpulses_driftband"]
-
-        self.subpulses.add_subpulses(subpulses_phase, subpulses_pulse, subpulses_width, subpulses_driftband)
+        self.subpulses.unserialize(drift_dict["subpulses"])
 
         for item in drift_dict["model_fits"]:
             self.model_fits[item[0]] = ModelFit()
             self.model_fits[item[0]].unserialize(item[1])
 
         self.maxima_threshold = drift_dict["maxima_threshold"]
-        self.subpulses_fmt    = drift_dict["subpulses_fmt"]
         self.drift_sequences.boundaries = drift_dict["drift_mode_boundaries"]
 
         self.jsonfile = jsonfile
@@ -901,7 +906,7 @@ class DriftAnalysisInteractivePlot(DriftAnalysis):
                     self.smoothed_ps.set_fiducial_phase(event.xdata)
 
                 # Adjust all the maxima points
-                if self.subpulses.nsubpulses > 0:
+                if self.subpulses.get_nsubpulses() > 0:
                     self.subpulses.shift_all_subpulses(dphase=-event.xdata)
 
                 # Replot everything
