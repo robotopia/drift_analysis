@@ -260,16 +260,25 @@ class DriftSequences:
 
 class ModelFit(pulsestack.Pulsestack):
     def __init__(self):
-        self.parameters = None
+        self.parameters  = None
+        self.pcov        = None
 
         self.first_pulse = None
         self.last_pulse  = None
 
-        self.model_name = None
+        self.model_name  = None
 
         # A dictionary for keeping track of line plot objects
         # Dictioney keys are intended to be driftband numbers
         self.driftband_plts = {}
+
+    def __str__(self):
+        if self.model_name == "quadratic":
+            return "Model: {} (phi = a1*p^2 + a2*p + a3 + a4*d) \nPulse range: {:.1f} - {:.1f}\n  a1 = {}\n  a2 = {}\n  a3 = {}\n  a4 = {}".format(self.model_name, self.first_pulse, self.last_pulse, *self.parameters)
+        elif self.model_name == "exponential":
+            return "Model: {} (phi = (D0/k)*(1 - exp(-k*(p - p0)) + phi0 + P2*d)\nPulse range: {:.1f} - {:.1f}\n  D0   = {}\n  k =    {}\n  phi0 = {}\n  P2   = {}".format(self.model_name, self.first_pulse, self.last_pulse, *self.parameters)
+        else:
+            return "Unrecognised model '{}'".format(self.model)
 
     def print_unrecognised_model_error(self):
         print("Unrecognised model '" + self.model_name + "'")
@@ -307,7 +316,7 @@ class ModelFit(pulsestack.Pulsestack):
 
         if new_model_name == "quadratic":
             # This conversion keeps the phase and P2 of the driftbands at the beginning of the drift
-            # sequence the same, and chooses the exponential model which matches the drift rate at
+            # sequence the same, and chooses the quadratic model which matches the drift rate at
             # both the beginning and the end of the sequence. It is NOT guaranteed that the phase
             # of the driftbands match at the end of the drift sequence
             P2 = self.calc_P2()
@@ -324,6 +333,13 @@ class ModelFit(pulsestack.Pulsestack):
             self.model_name = new_model_name
 
     def optimise_fit_to_subpulses(self, phases, pulses, driftbands):
+        # A valid model must be specified in self.model_name
+        if self.model_name is None:
+            print("Unspecified model. Cannot optimise model fit. Aborting")
+            return
+
+        print("Fitting points to mode \"" + self.model_name + "\"")
+
         # phases, pulses, and driftbands must be vectors with the same length
         npoints = len(phases)
         if len(pulses) != npoints or len(driftbands)!= npoints:
@@ -335,34 +351,26 @@ class ModelFit(pulsestack.Pulsestack):
         p  = np.array(pulses)
         d  = np.array(driftbands)
 
-        if self.model_name == "quadratic":
-            Y   = ph
-            X   = np.array([p**2, p, np.ones(p.shape), d]).T
-            XTX = X.T @ X
-            XTY = X.T @ Y
-            self.parameters = np.linalg.pinv(XTX) @ XTY
-        elif self.model_name == "exponential":
+        # Get things in a form that curve_fit needs
+        xdata = np.array([p, d])
+        ydata = np.array(ph)
 
-            # Get things in a form that curve_fit needs
-            xdata = np.array([p, d])
-            ydata = np.array(ph)
+        # Use the existing model as the initial guess
+        p0 = self.parameters
+        if p0 is None:
+            print("No initial guess supplied. Results may vary")
+            if self.model_name == "quadratic":
+                p0 = np.ones((4,))
+            elif self.model_name == "exponential":
+                p0 = np.ones((4,))
 
-            # Use the existing model as the initial guess
-            p0 = self.parameters
-            if p0 is None:
-                print("Unable to fit exponential model without an existing model to use as an initial guess for curve_fit")
-                return
+        # Call curve_fit
+        popt, pcov = curve_fit(self.calc_phase_for_curvefit, xdata, ydata, p0=p0)
+        # TO DO: Include Jacobian in the above call to curve_fit
 
-            # Call curve_fit
-            popt, pcov = curve_fit(self.calc_phase_for_curvefit, xdata, ydata, p0=p0)
-            # TO DO: Include Jacobian in the above call to curve_fit
-
-            # Set these parameters!
-            self.parameters = popt
-
-        else:
-            self.print_unrecognised_model_error()
-            return
+        # Set these parameters!
+        self.parameters = popt
+        self.pcov       = pcov
 
     def serialize(self):
         return [list(self.parameters),
@@ -673,9 +681,14 @@ class DriftAnalysis(pulsestack.Pulsestack):
 
         self.jsonfile = jsonfile
 
-    def plot_subpulses(self, **kwargs):
-        if self.subpulses_plt is None:
-            self.subpulses_plt, = self.ax.plot(self.subpulses.get_phases(), self.subpulses.get_pulses(), self.subpulses_fmt, **kwargs)
+    def plot_subpulses(self, refresh=False, **kwargs):
+        if self.subpulses_plt is None or refresh == True:
+            # Plot all the ones without assigned driftbands in green ...
+            no_valid_driftband = np.isnan(self.subpulses.get_driftbands())
+            self.subpulses_plt, = self.ax.plot(self.subpulses.get_phases(subset=no_valid_driftband), self.subpulses.get_pulses(subset=no_valid_driftband), 'gx', **kwargs)
+            # ... and all the ones with driftbands in blue
+            with_valid_driftband = np.logical_not(no_valid_driftband)
+            self.subpulses_plt, = self.ax.plot(self.subpulses.get_phases(subset=with_valid_driftband), self.subpulses.get_pulses(subset=with_valid_driftband), 'bx', **kwargs)
         else:
             self.subpulses_plt.set_data(self.subpulses.get_phases(), self.subpulses.get_pulses())
 
@@ -919,14 +932,14 @@ class DriftAnalysisInteractivePlot(DriftAnalysis):
 
                 self.set_default_mode()
 
-        elif self.mode == "zoom_drift_sequence" or self.mode == "switch_to_quadratic_and_solve" or self.mode == "assign_driftbands" or self.mode == "switch_to_exponential_and_solve":
+        elif self.mode == "zoom_drift_sequence" or self.mode == "switch_to_quadratic_and_solve" or self.mode == "assign_driftbands" or self.mode == "switch_to_exponential_and_solve" or self.mode == "display_model_details":
             if event.inaxes == self.ax:
                 pulse_idx = self.get_pulse_bin(event.ydata, inrange=False)
                 self.selected = self.drift_sequences.get_sequence_number(pulse_idx, self.npulses)
                 if self.selected is not None:
 
-                    # If some modes, the user only can select sequences with existing models
-                    if self.mode == "switch_to_quadratic_and_solve" or self.mode == "switch_to_exponential_and_solve" or self.mode == "assign_driftbands":
+                    # In some modes, the user only can select sequences with existing models
+                    if self.mode == "switch_to_quadratic_and_solve" or self.mode == "switch_to_exponential_and_solve" or self.mode == "assign_driftbands" or self.mode == "display_model_details":
                         if self.selected not in self.model_fits.keys():
                             return
 
@@ -1016,6 +1029,7 @@ class DriftAnalysisInteractivePlot(DriftAnalysis):
                 print("E     Switch to exponential model and redo fit using all subpulses assigned driftbands in sequence")
                 print("$     Plot the drift rate of the model fits against pulse number")
                 print("%     3D plot of drift rate (d) vs d-dot vs pulse number")
+                print("m     Print model parameters to stdout")
 
             elif event.key == "j":
                 self.save_json()
@@ -1266,18 +1280,10 @@ class DriftAnalysisInteractivePlot(DriftAnalysis):
                 self.fig.canvas.draw()
                 self.mode = "switch_to_exponential_and_solve"
 
-            '''
-            elif event.key == "r":
-                approxP2 = 15 # CHANGE ME! Make more general!
-                driftrates = self.driftrates_via_cross_correlation(approxP2)
-
-                # Plot results
-                dr_fig, dr_ax = plt.subplots()
-                dr_ax.plot(self.get_pulses_array()[:-1], driftrates)
-                dr_ax.set_xlabel("Pulse number of first pulse in cross correlation")
-                dr_ax.set_ylabel("Drift rate (deg)")
-                dr_fig.show()
-            '''
+            elif event.key == "m":
+                    self.ax.set_title("Select a drift sequence by clicking on the pulsestack.\nPress enter to confirm, esc to cancel.")
+                    self.fig.canvas.draw()
+                    self.mode = "display_model_details"
 
         ########################################
         # SPECIALISED KEYS FOR DIFFERENT MODES #
@@ -1583,6 +1589,9 @@ class DriftAnalysisInteractivePlot(DriftAnalysis):
                 # Assign each subpulse in sequence to the nearest driftband
                 subset = self.subpulses.assign_driftbands_to_subpulses(self.model_fits[self.selected])
 
+                # Replot subpulses to reflect change in status
+                self.plot_subpulses(refresh=True)
+
                 # Mark that unsaved changes have been made
                 if self.jsonfile is not None:
                     self.fig.canvas.manager.set_window_title(self.jsonfile + "*")
@@ -1684,6 +1693,17 @@ class DriftAnalysisInteractivePlot(DriftAnalysis):
                     self.quadratic_selected_plt[0].set_data([], [])
                     self.quadratic_selected_plt = None
 
+                self.deselect()
+                self.set_default_mode()
+
+        elif self.mode == "display_model_details":
+
+            if event.key == "enter":
+                print(self.model_fits[self.selected])
+                self.deselect()
+                self.set_default_mode()
+
+            elif event.key == "escape":
                 self.deselect()
                 self.set_default_mode()
 
