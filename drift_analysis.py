@@ -1,4 +1,4 @@
-__version__ = "0.9.3"
+__version__ = "0.9.4"
 
 import sys
 import copy
@@ -373,16 +373,50 @@ class ModelFit(pulsestack.Pulsestack):
         self.pcov       = pcov
 
     def serialize(self):
-        return [list(self.parameters),
-                self.first_pulse,
-                self.last_pulse,
-                self.model_name]
+        serialized = {}
+
+        if self.model_name is not None:
+            serialized["model_name"] = self.model_name
+
+        if self.parameters is not None:
+            serialized["parameters"] = list(self.parameters)
+
+        if self.first_pulse is not None and self.last_pulse is not None:
+            serialized["pulse_range"] = [self.first_pulse, self.last_pulse]
+
+        if self.pcov is not None:
+            serialized["self.pcov"] = list(self.pcov.flatten())
+
+        return serialized
 
     def unserialize(self, data):
-        self.parameters  = data[0]
-        self.first_pulse = data[1]
-        self.last_pulse  = data[2]
-        self.model_name  = data[3]
+        if "model_name" in data.keys():
+            self.model_name = data["model_name"]
+        else:
+            self.model_name = None
+
+        if "parameters" in data.keys():
+            self.parameters = data["parameters"]
+            nparameters = len(self.parameters)
+
+            # Only attempt to make sense of the pcov if there are already parameters
+            # Also, the number of elements in pcov MUST be the square of the number of parameters
+            if "pcov" in data.keys():
+                if len(data["pcov"]) == nparameters**2:
+                    self.pcov = np.reshape(data["pcov"], (nparameters, nparameters))
+                else:
+                    self.pcov = None
+            else:
+                self.pcov = None
+        else:
+            self.parameters = None
+
+        if "pulse_range" in data.keys():
+            self.first_pulse, self.last_pulse = data["pulse_range"]
+        else:
+            self.first_pulse = None
+            self.last_pulse  = None
+
 
     def calc_phase(self, pulse, driftband):
         p  = pulse
