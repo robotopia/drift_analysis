@@ -319,7 +319,10 @@ class ModelFit(pulsestack.Pulsestack):
 
         parameter_names = self.get_parameter_names()
         for i in range(len(self.parameters)):
-            model_string += "  {:4} = {}\n".format(parameter_names[i], self.parameters[i])
+            model_string += "  {:4} = {}".format(parameter_names[i], self.parameters[i])
+            if self.pcov is not None:
+                model_string += " +- {}".format(np.sqrt(self.pcov[i,i]))
+            model_string += "\n"
 
         return model_string
 
@@ -428,7 +431,7 @@ class ModelFit(pulsestack.Pulsestack):
             serialized["pulse_range"] = [self.first_pulse, self.last_pulse]
 
         if self.pcov is not None:
-            serialized["self.pcov"] = list(self.pcov.flatten())
+            serialized["pcov"] = list(self.pcov.flatten())
 
         return serialized
 
@@ -526,6 +529,9 @@ class ModelFit(pulsestack.Pulsestack):
         else:
             self.print_unrecognised_model_error()
             return
+
+    def calc_driftrate_decay_rate(self, pulse):
+        return -self.calc_driftrate_derivative(pulse)/self.calc_driftrate(pulse)
 
     def get_nearest_driftband(self, pulse, phase):
         p  = pulse
@@ -1062,6 +1068,7 @@ class DriftAnalysisInteractivePlot(DriftAnalysis):
                 print("#     Switch to quadratic model and redo fit using all subpulses assigned driftbands in sequence")
                 print("E     Switch to exponential model and redo fit using all subpulses assigned driftbands in sequence")
                 print("$     Plot the drift rate of the model fits against pulse number")
+                print("&     Plot the driftrate decay rate of the model fits against pulse number")
                 print("%     3D plot of drift rate (d) vs d-dot vs pulse number")
                 print("m     Print model parameters to stdout")
 
@@ -1290,6 +1297,19 @@ class DriftAnalysisInteractivePlot(DriftAnalysis):
                     dr_ax.plot(pulses, driftrates, 'k')
                 dr_ax.set_xlabel("Pulse number")
                 dr_ax.set_ylabel("Drift rate (deg/pulse)")
+                dr_fig.show()
+
+            elif event.key == "&":
+                dr_fig, dr_ax = plt.subplots()
+                for seq in self.model_fits:
+                    pulse_range = self.model_fits[seq].get_pulse_bounds()
+                    pulse_idx_range = self.get_pulse_bin(pulse_range)
+                    pulse_idxs = np.arange(pulse_idx_range[0], pulse_idx_range[1] + 1)
+                    pulses     = self.get_pulse_from_bin(pulse_idxs)
+                    decayrates = self.model_fits[seq].calc_driftrate_decay_rate(pulses)
+                    dr_ax.plot(pulses, decayrates, 'k')
+                dr_ax.set_xlabel("Pulse number")
+                dr_ax.set_ylabel("Driftrate decay rate (/pulse)")
                 dr_fig.show()
 
             elif event.key == "%":
