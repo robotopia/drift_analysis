@@ -308,11 +308,20 @@ class ModelFit(pulsestack.Pulsestack):
     def get_nparameters(self):
         return len(self.get_parameter_names())
 
-    def get_parameter_names(self):
+    def get_parameter_names(self, display_type=None):
+        '''
+        display_type can be 'latex'. None default to ascii-type output
+        '''
         if self.model_name == "quadratic":
-            return ["a1", "a2", "a3", "a4"]
+            if display_type == "latex":
+                return ["a_1", "a_2", "a_3", "a_4"]
+            else:
+                return ["a1", "a2", "a3", "a4"]
         elif self.model_name == "exponential":
-            return ["D0", "k", "phi0", "P2"]
+            if display_type == "latex":
+                return ["D_0", "k", "\\varphi_0", "P_2"]
+            else:
+                return ["D0", "k", "phi0", "P2"]
         else:
             self.print_unecognised_model_error()
 
@@ -993,7 +1002,7 @@ class DriftAnalysisInteractivePlot(DriftAnalysis):
 
                 self.set_default_mode()
 
-        elif self.mode == "zoom_drift_sequence" or self.mode == "switch_to_quadratic_and_solve" or self.mode == "assign_driftbands" or self.mode == "switch_to_exponential_and_solve" or self.mode == "display_model_details":
+        elif self.mode == "zoom_drift_sequence" or self.mode == "switch_to_quadratic_and_solve" or self.mode == "assign_driftbands" or self.mode == "switch_to_exponential_and_solve" or self.mode == "display_model_details" or self.mode == "auto_correlation":
             if event.inaxes == self.ax:
                 pulse_idx = self.get_pulse_bin(event.ydata, inrange=False)
                 self.selected = self.drift_sequences.get_sequence_number(pulse_idx, self.npulses)
@@ -1279,26 +1288,9 @@ class DriftAnalysisInteractivePlot(DriftAnalysis):
                 self.mode = "assign_driftbands"
 
             elif event.key == "A":
-                autocorr, lags, shift = self.auto_correlate_pulses(set_DC_value=np.nan)
-
-                # Calculate extent "by hand"
-                extent = (lags[0] - 0.5*self.dphase_deg,
-                        lags[-1] + 0.5*self.dphase_deg,
-                        self.first_pulse - 0.5*self.dpulse,
-                        self.first_pulse + (autocorr.shape[0] - 0.5)*self.dpulse)
-
-                corr_fig, corr_axs = plt.subplots(2, 1, sharex=True)
-
-                corr_axs[1].imshow(autocorr, aspect='auto', origin='lower', interpolation='none', cmap='hot', extent=extent)
-                corr_axs[1].set_xlabel("Correlation lag (deg)")
-                corr_axs[1].set_ylabel("Pulse number")
-                corr_axs[1].set_title("Auto-correlation of each pulse")
-
-                corr_axs[0].axvline(0, linestyle='--', color='k')
-                corr_axs[0].plot(lags, np.sum(autocorr, axis=0))
-                corr_axs[0].set_title("Sum of (below) auto-correlations")
-
-                corr_fig.show()
+                self.ax.set_title("Select a drift sequence by clicking on the pulsestack.\nPress enter to confirm, esc to cancel.")
+                self.fig.canvas.draw()
+                self.mode = "auto_correlation"
 
             elif event.key == "@":
                 self.ax.set_title("Quadratic fit: Choose subpulses ('.' to confirm subpulse,\nenter to confirm fit, esc to cancel)")
@@ -1357,7 +1349,7 @@ class DriftAnalysisInteractivePlot(DriftAnalysis):
                 dummy = ModelFit()
                 dummy.model_name = "exponential"
                 nparameters = dummy.get_nparameters()
-                param_names = dummy.get_parameter_names()
+                param_names = dummy.get_parameter_names(display_type='latex')
 
                 param_fig, param_axs = plt.subplots(nrows=nparameters, ncols=1, sharex=True)
 
@@ -1391,7 +1383,7 @@ class DriftAnalysisInteractivePlot(DriftAnalysis):
                 # Plot everything up!
                 for i in range(nparameters):
                     param_axs[i].errorbar(pmid, params[:,i], xerr=perr, yerr=param_errs[:,i], fmt='.')
-                    param_axs[i].set_ylabel(param_names[i])
+                    param_axs[i].set_ylabel("$" + param_names[i] + "$")
                 param_axs[-1].set_xlabel("Pulse number")
 
                 param_fig.show()
@@ -1823,6 +1815,45 @@ class DriftAnalysisInteractivePlot(DriftAnalysis):
                 print(self.model_fits[self.selected])
                 self.deselect()
                 self.set_default_mode()
+
+            elif event.key == "escape":
+                self.deselect()
+                self.set_default_mode()
+
+        elif self.mode == "auto_correlation":
+
+            if event.key == "enter":
+                # If no sequence is selected, do the cross correlation for the whole pulsestack
+                if self.selected is None:
+                    ps = self
+                else:
+                    pulse_idx_range = self.drift_sequences.get_bounding_pulse_idxs(self.selected, self.npulses)
+                    pulse_range = self.get_pulse_from_bin(np.array(pulse_idx_range))
+                    ps = self.crop(pulse_range=pulse_range, inplace=False)
+
+                autocorr, lags, shift = ps.auto_correlate_pulses(set_DC_value=np.nan)
+
+                # Calculate extent "by hand"
+                extent = (lags[0] - 0.5*ps.dphase_deg,
+                        lags[-1] + 0.5*ps.dphase_deg,
+                        ps.first_pulse - 0.5*self.dpulse,
+                        ps.first_pulse + (autocorr.shape[0] - 0.5)*ps.dpulse)
+
+                corr_fig, corr_axs = plt.subplots(2, 1, sharex=True)
+
+                corr_axs[1].imshow(autocorr, aspect='auto', origin='lower', interpolation='none', cmap='hot', extent=extent)
+                corr_axs[1].set_xlabel("Correlation lag (deg)")
+                corr_axs[1].set_ylabel("Pulse number")
+                corr_axs[1].set_title("Auto-correlation of each pulse")
+
+                corr_axs[0].axvline(0, linestyle='--', color='k')
+                corr_axs[0].plot(lags, np.sum(autocorr, axis=0))
+                corr_axs[0].set_title("Sum of (below) auto-correlations")
+
+                self.deselect()
+                self.set_default_mode()
+
+                corr_fig.show()
 
             elif event.key == "escape":
                 self.deselect()
