@@ -151,16 +151,18 @@ class Pulsestack:
         if inrange == True:
             if np.any(pulse_bin < 0):
                 pulse_bin[pulse_bin < 0] = 0
-            if np.any(pulse_bin > self.values.shape[0] - 1):
-                pulse_bin[pulse_bin > self.values.shape[0] - 1] = self.values.shape[0] - 1
+            if np.any(pulse_bin > self.npulses - 1):
+                pulse_bin[pulse_bin > self.npulses - 1] = self.npulses - 1
         return pulse_bin
 
     def get_phase_bin(self, phase_deg, inrange=True):
         # This can return fractional (non-integer) values
         phase_deg_bin = (np.array(phase_deg) - self.first_phase)/self.dphase_deg
         if inrange == True:
-            phase_deg_bin[phase_deg_bin < 0] = 0
-            phase_deg_bin[phase_deg_bin > self.values.shape[1] - 1] = self.values.shape[1] - 1
+            if np.any(phase_deg_bin < 0):
+                phase_deg_bin[phase_deg_bin < 0] = 0
+            if np.any(phase_deg_bin > self.nbins - 1):
+                phase_deg_bin[phase_deg_bin > self.nbins - 1] = self.nbins - 1
         return phase_deg_bin
 
     def get_pulse_from_bin(self, pulse_bin):
@@ -192,27 +194,15 @@ class Pulsestack:
         else:
             newps = copy.copy(self)
 
-        # Set defaults (= no cropping)
-        pulse_bin_range = [0, self.values.shape[0]]
-        phase_bin_range = [0, self.values.shape[1]]
-
         if pulse_range is not None:
 
-            if pulse_range[0] is not None:
-                pulse_bin_range[0] = int(np.round(newps.get_pulse_bin(pulse_range[0])))
-            if pulse_range[1] is not None:
-                pulse_bin_range[1] = int(np.round(newps.get_pulse_bin(pulse_range[1])))
-
+            pulse_bin_range    = np.round(newps.get_pulse_bin(pulse_range)).astype(int)
             newps.values       = newps.values[pulse_bin_range[0]:pulse_bin_range[1], :]
             newps.first_pulse += pulse_bin_range[0]*newps.dpulse
 
         if phase_deg_range is not None:
 
-            if phase_deg_range[0] is not None:
-                phase_bin_range[0] = int(np.round(newps.get_phase_bin(phase_deg_range[0])))
-            if phase_deg_range[1] is not None:
-                phase_bin_range[1] = int(np.round(newps.get_phase_bin(phase_deg_range[1])))
-
+            phase_bin_range     = np.round(newps.get_phase_bin(phase_deg_range)).astype(int)
             newps.values        = newps.values[:,phase_bin_range[0]:phase_bin_range[1]]
             newps.first_phase  += phase_bin_range[0]*newps.dphase_deg
 
@@ -240,11 +230,46 @@ class Pulsestack:
                   self.first_pulse - 0.5*self.dpulse,
                   self.first_pulse + (self.values.shape[0] - 0.5)*self.dpulse]
 
-    def plot_image(self, **kwargs):
+    def cross_correlate_successive_pulses(self):
+        # Calculate the cross correlation via the Fourier Transform method and
+        crosscorr = copy.copy(self)
+
+        # put the result into its own "pulsestack"
+        rffted    = np.fft.rfft(self.values, axis=1)
+        corred    = np.conj(rffted[:-1,:]) * rffted[1:,:]
+        crosscorr.values = np.fft.irfft(corred, axis=1)
+
+        # Put zero lag in the centre
+        shift = self.nbins//2
+        crosscorr.values = np.roll(crosscorr.values, shift, axis=1)
+        crosscorr.first_phase = -shift*self.dphase_deg
+
+        # Remember, there's now one fewer pulses!
+        crosscorr.npulses -= 1
+
+        return crosscorr
+
+    def auto_correlate_pulses(self, do_shift=True, set_DC_value=None):
+        # Calculate the auto correlation via the Fourier Transform
+        rffted   = np.fft.rfft(self.values, axis=1)
+        corred   = np.conj(rffted) * rffted
+        shift    = self.nbins//2
+        autocorr = np.fft.irfft(corred, axis=1)
+        lags     = np.arange(autocorr.shape[1])*self.dphase_deg
+
+        if set_DC_value is not None:
+            autocorr[:,0] = set_DC_value
+
+        if do_shift:
+            autocorr = np.roll(autocorr, shift, axis=1)
+            lags    -= shift*self.dphase_deg
+
+        return autocorr, lags, shift
+
+    def plot_image(self, ax, **kwargs):
         # Plots the pulsestack as an image
-        self.fig, self.ax = plt.subplots()
         extent = self.calc_image_extent()
-        self.ps_image = plt.imshow(self.values, aspect='auto', origin='lower', interpolation='none', extent=extent, cmap='hot', **kwargs)
-        self.cbar = plt.colorbar()
-        plt.xlabel("Pulse phase (deg)")
-        plt.ylabel("Pulse number")
+        self.ps_image = ax.imshow(self.values, aspect='auto', origin='lower', interpolation='none', extent=extent, cmap='hot', **kwargs)
+        self.cbar = plt.colorbar(mappable=self.ps_image, ax=ax)
+        ax.set_xlabel("Pulse phase (deg)")
+        ax.set_ylabel("Pulse number")

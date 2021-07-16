@@ -39,12 +39,13 @@ class Subpulses:
         return serialized
 
     def unserialize(self, serialized):
-        pulses       = serialized["pulses"]
-        phases       = serialized["phases"]
-        widths       = serialized["widths"]
-        driftbands   = serialized["driftbands"]
+        if len(serialized) > 0:
+            pulses       = serialized["pulses"]
+            phases       = serialized["phases"]
+            widths       = serialized["widths"]
+            driftbands   = serialized["driftbands"]
 
-        self.add_subpulses(phases, pulses, widths=widths, driftbands=driftbands)
+            self.add_subpulses(phases, pulses, widths=widths, driftbands=driftbands)
 
     def add_subpulses(self, phases, pulses, widths=None, driftbands=None):
         if len(phases) != len(pulses):
@@ -83,7 +84,10 @@ class Subpulses:
         self.data = None
 
     def get_nsubpulses(self):
-        return self.data.shape[0]
+        if self.data is None:
+            return 0
+        else:
+            return self.data.shape[0]
 
     def get_phases(self, subset=None):
         if subset is None:
@@ -657,6 +661,7 @@ class ModelFit(pulsestack.Pulsestack):
 
 class DriftAnalysis(pulsestack.Pulsestack):
     def __init__(self):
+        super().__init__()
         self.fig                       = None
         self.ax                        = None
         self.subpulses                 = Subpulses()
@@ -752,6 +757,9 @@ class DriftAnalysis(pulsestack.Pulsestack):
         self.jsonfile = jsonfile
 
     def plot_subpulses(self, refresh=False, **kwargs):
+        if self.subpulses.get_nsubpulses() == 0:
+            return
+
         if self.subpulses_plt is None or refresh == True:
             # Plot all the ones without assigned driftbands in green ...
             no_valid_driftband = np.isnan(self.subpulses.get_driftbands())
@@ -785,73 +793,6 @@ class DriftAnalysis(pulsestack.Pulsestack):
     def unplot_all_model_fits(self):
         for i in self.model_fits:
             self.model_fits[i].clear_all_plots()
-
-    def cross_correlate_successive_pulses(self, do_shift=True):
-        # Calculate the cross correlation via the Fourier Transform
-        rffted    = np.fft.rfft(self.values, axis=1)
-        corred    = np.conj(rffted[:-1,:]) * rffted[1:,:]
-        shift     = self.nbins//2
-        crosscorr = np.fft.irfft(corred, axis=1)
-        # Calculate the lags and put zero lag in the centre
-        # Even though there is a np.fftshift function for this, I'm doing it
-        # "by hand" so that I don't have to worry by how much it gets shifted depending on
-        # whether it's an odd or even number of bins, as it doesn't really matter where
-        # the "Nyquist" bin ends up.
-        lags      = np.arange(crosscorr.shape[1])*self.dphase_deg
-        if do_shift:
-            crosscorr = np.roll(crosscorr, shift, axis=1)
-            lags     -= shift*self.dphase_deg
-
-        return crosscorr, lags, shift
-
-    def auto_correlate_pulses(self, do_shift=True, set_DC_value=None):
-        # Calculate the auto correlation via the Fourier Transform
-        rffted   = np.fft.rfft(self.values, axis=1)
-        corred   = np.conj(rffted) * rffted
-        shift    = self.nbins//2
-        autocorr = np.fft.irfft(corred, axis=1)
-        lags     = np.arange(autocorr.shape[1])*self.dphase_deg
-
-        if set_DC_value is not None:
-            autocorr[:,0] = set_DC_value
-
-        if do_shift:
-            autocorr = np.roll(autocorr, shift, axis=1)
-            lags    -= shift*self.dphase_deg
-
-        return autocorr, lags, shift
-
-    def driftrates_via_cross_correlation(self, approx_P2, smoothing_kernel_size=None):
-        '''
-        This function calculates the drift rate for each pulse in the following way:
-        It first calculates the cross correlation of each pulse with its successor.
-        Then it smooths with a gaussian kernel, and finds the position of the peak
-        (via linear interpolation) that lies in the range
-        [-0.5*approx_P2:0.5*approx_P2]
-        The default smoothing kernel size is 0.1*approx_P2
-        '''
-        crosscorr, lags, shift = self.cross_correlate_successive_pulses()
-
-        lo_idx = shift - int(0.5*approx_P2/self.dphase_deg)
-        hi_idx = shift + int(0.5*approx_P2/self.dphase_deg) + 1
-
-        if smoothing_kernel_size is None:
-            smoothing_kernel_size = 0.1*approx_P2
-
-        smoothed = gaussian_filter1d(crosscorr[:,lo_idx:hi_idx], smoothing_kernel_size/self.dphase_deg, mode='wrap')
-
-        max_idxs = np.argmax(smoothed, axis=1)
-
-        # Let p1, p2, p3 be the values before, at, and after the peak respectively.
-        # Then linear interpolation of the differences gives a root at interpolated bin number
-        # relative to the peak bin
-        # (p2-p1)/((p2-p1)-(p3-p2)) + 0.5
-        #   = (p2-p1)/(2*p2 - p1 - p3) + 0.5
-        interpolated_idxs = np.array([(smoothed[p,max_idxs[p]] - smoothed[p,max_idxs[p]-1])/(2*smoothed[p,max_idxs[p]] - smoothed[p,max_idxs[p]-1] - smoothed[p,max_idxs[p]+1]) + 0.5 for p in range(len(max_idxs))])
-
-        # Now just convert the interpolated bin numbers into absolute phases
-        driftrates = (interpolated_idxs + max_idxs + lo_idx - shift)*self.dphase_deg
-        return driftrates
 
 class DriftAnalysisInteractivePlot(DriftAnalysis):
     def __init__(self):
@@ -1195,6 +1136,7 @@ class DriftAnalysisInteractivePlot(DriftAnalysis):
                 self.mode = "delete_drift_mode_boundary"
 
             elif event.key == "P":
+                print("Plotting profile")
                 cropped = self.crop(pulse_range=self.ax.get_ylim(), phase_deg_range=self.ax.get_xlim(), inplace=False)
 
                 # Make the profile and an array of phases
@@ -1256,31 +1198,28 @@ class DriftAnalysisInteractivePlot(DriftAnalysis):
                 self.fig.canvas.draw()
 
             elif event.key == "d":
-                crosscorr, lags, shift = self.cross_correlate_successive_pulses()
+                # Start a new instance of DriftAnalysisInteractivePlot for the cross correlation
+                self.cc = DriftAnalysisInteractivePlot()
 
-                # Calculate extent "by hand"
-                extent = (lags[0] - 0.5*self.dphase_deg,
-                        lags[-1] + 0.5*self.dphase_deg,
-                        self.first_pulse - 0.5*self.dpulse,
-                        self.first_pulse + (crosscorr.shape[0] - 0.5)*self.dpulse)
+                # Actually do the cross correlation and "copy" it across to this instance
+                crosscorr = self.cross_correlate_successive_pulses()
+                self.cc.stokes      = crosscorr.stokes
+                self.cc.npulses     = crosscorr.npulses
+                self.cc.nbins       = crosscorr.nbins
+                self.cc.first_pulse = crosscorr.first_pulse
+                self.cc.first_phase = crosscorr.first_phase
+                self.cc.dpulse      = crosscorr.dpulse
+                self.cc.dphase_deg  = crosscorr.dphase_deg
+                self.cc.values      = crosscorr.values
 
-                corr_fig, corr_axs = plt.subplots(2, 1, sharex=True)
+                # Remove all the subpulses and models
+                self.cc.subpulses = Subpulses()
+                self.cc.model_fits = {}
+                # ... but keep the drift sequence boundaries
+                self.cc.drift_sequences = copy.copy(self.drift_sequences)
 
-                corr_axs[1].imshow(crosscorr, aspect='auto', origin='lower', interpolation='none', cmap='hot', extent=extent)
-                corr_axs[1].set_xlabel("Correlation lag (deg)")
-                corr_axs[1].set_ylabel("Pulse number of first pulse")
-                corr_axs[1].set_title("Cross correlation of each pulse with its successor")
-
-                corr_axs[0].axvline(0, linestyle='--', color='k')
-                corr_axs[0].plot(lags, np.sum(crosscorr, axis=0))
-                corr_axs[0].set_title("Sum of (below) cross correlations")
-
-                # Also, get the drift rates and plot them on the cross correlation
-                approxP2 = 15 # CHANGE ME! Make more general!
-                driftrates = self.driftrates_via_cross_correlation(approxP2)
-                corr_axs[1].plot(driftrates, self.get_pulses_array()[:-1], 'gx')
-
-                corr_fig.show()
+                # Make it interactive!
+                self.cc.start()
 
             elif event.key == "D":
                 self.ax.set_title("Select a drift sequence by clicking on the pulsestack.\nPress enter to confirm, esc to cancel.")
@@ -1877,7 +1816,8 @@ class DriftAnalysisInteractivePlot(DriftAnalysis):
         '''
 
         # Make the plots
-        self.plot_image()
+        self.fig, self.ax = plt.subplots()
+        self.plot_image(ax=self.ax)
 
         xlim = self.ax.get_xlim()
         ylim = self.ax.get_ylim()
@@ -1903,7 +1843,7 @@ class DriftAnalysisInteractivePlot(DriftAnalysis):
             self.fig.canvas.manager.set_window_title("[Unsaved pulsestack]")
 
         # Show the plot
-        plt.show()
+        self.fig.show()
 
 
 
@@ -1923,4 +1863,5 @@ if __name__ == '__main__':
 
     # Initiate the interactive plots
     ps.start()
+    plt.show()
 
