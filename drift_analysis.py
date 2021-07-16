@@ -1045,6 +1045,7 @@ class DriftAnalysisInteractivePlot(DriftAnalysis):
                 print("%     3D plot of drift rate (d) vs d-dot vs pulse number")
                 print("*     Plot the (exponential) model parameters as a function of pulse number")
                 print("m     Print model parameters to stdout")
+                print("+/-   Set upper/lower colorbar range")
 
             elif event.key == "j":
                 self.save_json()
@@ -1084,6 +1085,22 @@ class DriftAnalysisInteractivePlot(DriftAnalysis):
                     # Update the colorbar
                     self.cbar.update_normal(self.ps_image)
                     self.fig.canvas.draw()
+
+            elif event.key == "+":
+                vmin, _ = self.ps_image.get_clim()
+                root = tkinter.Tk()
+                root.withdraw()
+                vmax = tkinter.simpledialog.askfloat("Set upper dynamic range", "Input value for upper dynamic range", parent=root)
+                self.ps_image.set_clim(vmin, vmax)
+                self.fig.canvas.draw()
+
+            elif event.key == "-":
+                _, vmax = self.ps_image.get_clim()
+                root = tkinter.Tk()
+                root.withdraw()
+                vmin = tkinter.simpledialog.askfloat("Set upper dynamic range", "Input value for upper dynamic range", parent=root)
+                self.ps_image.set_clim(vmin, vmax)
+                self.fig.canvas.draw()
 
             elif event.key == "^":
                 self.ax.set_title("Set threshold on colorbar. Press enter when done, esc to cancel.")
