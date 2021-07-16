@@ -803,7 +803,7 @@ class DriftAnalysisInteractivePlot(DriftAnalysis):
         self.selected        = None
         self.selected_plt    = None
 
-        self.smoothed_ps  = None
+        self.visible_ps  = None
         self.show_smooth  = False
 
     def deselect(self):
@@ -893,9 +893,9 @@ class DriftAnalysisInteractivePlot(DriftAnalysis):
                 if self.show_smooth == False:
                     self.get_local_maxima(maxima_threshold=event.ydata)
                 else:
-                    self.smoothed_ps.get_local_maxima(maxima_threshold=event.ydata)
-                    self.maxima_threshold = self.smoothed_ps.maxima_threshold
-                    self.max_locations = self.smoothed_ps.max_locations
+                    self.visible_ps.get_local_maxima(maxima_threshold=event.ydata)
+                    self.maxima_threshold = self.visible_ps.maxima_threshold
+                    self.max_locations = self.visible_ps.max_locations
                 self.subpulses_plt.set_data(self.max_locations[1,:], self.max_locations[0,:])
                 self.fig.canvas.draw()
 
@@ -905,8 +905,8 @@ class DriftAnalysisInteractivePlot(DriftAnalysis):
                 self.set_fiducial_phase(event.xdata)
 
                 # If necessary, also set the same fiducial phase for the smoothed pulsestack
-                if self.smoothed_ps is not None:
-                    self.smoothed_ps.set_fiducial_phase(event.xdata)
+                if self.visible_ps is not None:
+                    self.visible_ps.set_fiducial_phase(event.xdata)
 
                 # Adjust all the maxima points
                 if self.subpulses.get_nsubpulses() > 0:
@@ -1064,7 +1064,7 @@ class DriftAnalysisInteractivePlot(DriftAnalysis):
                     self.fig.canvas.manager.set_window_title(self.jsonfile)
 
             elif event.key == "S":
-                if self.smoothed_ps is None:
+                if self.visible_ps is None:
                     self.show_smooth = False
 
                 if self.show_smooth == False:
@@ -1072,8 +1072,8 @@ class DriftAnalysisInteractivePlot(DriftAnalysis):
                     root.withdraw()
                     sigma = tkinter.simpledialog.askfloat("Smoothing kernel", "Input Gaussian kernel size (deg)", parent=root)
                     if sigma:
-                        self.smoothed_ps = self.smooth_with_gaussian(sigma, inplace=False)
-                        self.ps_image.set_data(self.smoothed_ps.values)
+                        self.visible_ps = self.smooth_with_gaussian(sigma, inplace=False)
+                        self.ps_image.set_data(self.visible_ps.values)
                         self.show_smooth = True
                         # Update the colorbar
                         self.cbar.update_normal(self.ps_image)
@@ -1106,8 +1106,8 @@ class DriftAnalysisInteractivePlot(DriftAnalysis):
                 self.ax.set_title("Set threshold on colorbar. Press enter when done, esc to cancel.")
                 self.old_maxima_threshold = self.maxima_threshold # Save value in case they cancel
                 if self.show_smooth == True:
-                    self.smoothed_ps.get_local_maxima(maxima_threshold=self.smoothed_ps.maxima_threshold)
-                    self.max_locations = self.smoothed_ps.max_locations
+                    self.visible_ps.get_local_maxima(maxima_threshold=self.visible_ps.maxima_threshold)
+                    self.max_locations = self.visible_ps.max_locations
                 else:
                     self.get_local_maxima()
 
@@ -1160,8 +1160,10 @@ class DriftAnalysisInteractivePlot(DriftAnalysis):
                 self.mode = "delete_drift_mode_boundary"
 
             elif event.key == "P":
-                print("Plotting profile")
-                cropped = self.crop(pulse_range=self.ax.get_ylim(), phase_deg_range=self.ax.get_xlim(), inplace=False)
+                if self.show_smooth == True:
+                    cropped = self.visible_ps.crop(pulse_range=self.ax.get_ylim(), phase_deg_range=self.ax.get_xlim(), inplace=False)
+                else:
+                    cropped = self.crop(pulse_range=self.ax.get_ylim(), phase_deg_range=self.ax.get_xlim(), inplace=False)
 
                 # Make the profile and an array of phases
                 profile = np.mean(cropped.values, axis=0)

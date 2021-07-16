@@ -26,22 +26,22 @@ class Pulsestack:
             serialized["stokes"] = self.stokes
 
         if self.npulses is not None:
-            serialized["npulses"] = self.npulses
+            serialized["npulses"] = int(self.npulses)
 
         if self.nbins is not None:
-            serialized["nbins"] = self.nbins
+            serialized["nbins"] = int(self.nbins)
 
         if self.first_pulse is not None:
-            serialized["first_pulse"] = self.first_pulse
+            serialized["first_pulse"] = float(self.first_pulse)
 
         if self.first_phase is not None:
-            serialized["first_phase"] = self.first_phase
+            serialized["first_phase"] = float(self.first_phase)
 
         if self.dpulse is not None:
-            serialized["dpulse"] = self.dpulse
+            serialized["dpulse"] = float(self.dpulse)
 
         if self.dphase_deg is not None:
-            serialized["dphase_deg"] = self.dphase_deg
+            serialized["dphase_deg"] = float(self.dphase_deg)
 
         if self.onpulse is not None:
             serialized["onpulse"] = list(self.onpulse)
