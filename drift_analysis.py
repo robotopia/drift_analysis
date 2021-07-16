@@ -46,6 +46,8 @@ class Subpulses:
             driftbands   = serialized["driftbands"]
 
             self.add_subpulses(phases, pulses, widths=widths, driftbands=driftbands)
+        else:
+            self.data = None
 
     def add_subpulses(self, phases, pulses, widths=None, driftbands=None):
         if len(phases) != len(pulses):
@@ -943,7 +945,7 @@ class DriftAnalysisInteractivePlot(DriftAnalysis):
 
                 self.set_default_mode()
 
-        elif self.mode == "zoom_drift_sequence" or self.mode == "switch_to_quadratic_and_solve" or self.mode == "assign_driftbands" or self.mode == "switch_to_exponential_and_solve" or self.mode == "display_model_details" or self.mode == "auto_correlation":
+        elif self.mode == "zoom_drift_sequence" or self.mode == "switch_to_quadratic_and_solve" or self.mode == "assign_driftbands" or self.mode == "switch_to_exponential_and_solve" or self.mode == "display_model_details":
             if event.inaxes == self.ax:
                 pulse_idx = self.get_pulse_bin(event.ydata, inrange=False)
                 self.selected = self.drift_sequences.get_sequence_number(pulse_idx, self.npulses)
@@ -1091,7 +1093,12 @@ class DriftAnalysisInteractivePlot(DriftAnalysis):
                     self.max_locations = self.smoothed_ps.max_locations
                 else:
                     self.get_local_maxima()
-                self.subpulses_plt.set_data(self.max_locations[1,:], self.max_locations[0,:])
+
+                if self.subpulses_plt is None:
+                    self.subpulses_plt, = self.ax.plot(self.max_locations[1,:], self.max_locations[0,:], 'gx')
+                else:
+                    self.subpulses_plt.set_data(self.max_locations[1,:], self.max_locations[0,:])
+
                 self.threshold_line = self.cbar.ax.axhline(self.maxima_threshold, color='g')
                 self.fig.canvas.draw()
                 self.mode = "set_threshold"
@@ -1227,9 +1234,28 @@ class DriftAnalysisInteractivePlot(DriftAnalysis):
                 self.mode = "assign_driftbands"
 
             elif event.key == "A":
-                self.ax.set_title("Select a drift sequence by clicking on the pulsestack.\nPress enter to confirm, esc to cancel.")
-                self.fig.canvas.draw()
-                self.mode = "auto_correlation"
+                # Start a new instance of DriftAnalysisInteractivePlot for the auto correlation
+                self.ac = DriftAnalysisInteractivePlot()
+
+                # Actually do the cross correlation and "copy" it across to this instance
+                autocorr = self.auto_correlate_pulses()
+                self.ac.stokes      = autocorr.stokes
+                self.ac.npulses     = autocorr.npulses
+                self.ac.nbins       = autocorr.nbins
+                self.ac.first_pulse = autocorr.first_pulse
+                self.ac.first_phase = autocorr.first_phase
+                self.ac.dpulse      = autocorr.dpulse
+                self.ac.dphase_deg  = autocorr.dphase_deg
+                self.ac.values      = autocorr.values
+
+                # Remove all the subpulses and models
+                self.ac.subpulses = Subpulses()
+                self.ac.model_fits = {}
+                # ... but keep the drift sequence boundaries
+                self.ac.drift_sequences = copy.copy(self.drift_sequences)
+
+                # Make it interactive!
+                self.ac.start()
 
             elif event.key == "@":
                 self.ax.set_title("Quadratic fit: Choose subpulses ('.' to confirm subpulse,\nenter to confirm fit, esc to cancel)")
@@ -1754,45 +1780,6 @@ class DriftAnalysisInteractivePlot(DriftAnalysis):
                 print(self.model_fits[self.selected])
                 self.deselect()
                 self.set_default_mode()
-
-            elif event.key == "escape":
-                self.deselect()
-                self.set_default_mode()
-
-        elif self.mode == "auto_correlation":
-
-            if event.key == "enter":
-                # If no sequence is selected, do the cross correlation for the whole pulsestack
-                if self.selected is None:
-                    ps = self
-                else:
-                    pulse_idx_range = self.drift_sequences.get_bounding_pulse_idxs(self.selected, self.npulses)
-                    pulse_range = self.get_pulse_from_bin(np.array(pulse_idx_range))
-                    ps = self.crop(pulse_range=pulse_range, inplace=False)
-
-                autocorr, lags, shift = ps.auto_correlate_pulses(set_DC_value=np.nan)
-
-                # Calculate extent "by hand"
-                extent = (lags[0] - 0.5*ps.dphase_deg,
-                        lags[-1] + 0.5*ps.dphase_deg,
-                        ps.first_pulse - 0.5*self.dpulse,
-                        ps.first_pulse + (autocorr.shape[0] - 0.5)*ps.dpulse)
-
-                corr_fig, corr_axs = plt.subplots(2, 1, sharex=True)
-
-                corr_axs[1].imshow(autocorr, aspect='auto', origin='lower', interpolation='none', cmap='hot', extent=extent)
-                corr_axs[1].set_xlabel("Correlation lag (deg)")
-                corr_axs[1].set_ylabel("Pulse number")
-                corr_axs[1].set_title("Auto-correlation of each pulse")
-
-                corr_axs[0].axvline(0, linestyle='--', color='k')
-                corr_axs[0].plot(lags, np.sum(autocorr, axis=0))
-                corr_axs[0].set_title("Sum of (below) auto-correlations")
-
-                self.deselect()
-                self.set_default_mode()
-
-                corr_fig.show()
 
             elif event.key == "escape":
                 self.deselect()

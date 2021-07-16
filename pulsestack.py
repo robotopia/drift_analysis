@@ -232,9 +232,9 @@ class Pulsestack:
 
     def cross_correlate_successive_pulses(self):
         # Calculate the cross correlation via the Fourier Transform method and
+        # put the result into its own "pulsestack"
         crosscorr = copy.copy(self)
 
-        # put the result into its own "pulsestack"
         rffted    = np.fft.rfft(self.values, axis=1)
         corred    = np.conj(rffted[:-1,:]) * rffted[1:,:]
         crosscorr.values = np.fft.irfft(corred, axis=1)
@@ -244,27 +244,26 @@ class Pulsestack:
         crosscorr.values = np.roll(crosscorr.values, shift, axis=1)
         crosscorr.first_phase = -shift*self.dphase_deg
 
-        # Remember, there's now one fewer pulses!
+        # Remember, there are now one fewer pulses!
         crosscorr.npulses -= 1
 
         return crosscorr
 
-    def auto_correlate_pulses(self, do_shift=True, set_DC_value=None):
-        # Calculate the auto correlation via the Fourier Transform
+    def auto_correlate_pulses(self):
+        # Calculate the auto correlation via the Fourier Transform and
+        # put the result into its own "pulsestack"
+        autocorr = copy.copy(self)
+
         rffted   = np.fft.rfft(self.values, axis=1)
         corred   = np.conj(rffted) * rffted
-        shift    = self.nbins//2
-        autocorr = np.fft.irfft(corred, axis=1)
-        lags     = np.arange(autocorr.shape[1])*self.dphase_deg
+        autocorr.values = np.fft.irfft(corred, axis=1)
 
-        if set_DC_value is not None:
-            autocorr[:,0] = set_DC_value
+        # Put zero lag in the centre
+        shift = self.nbins//2
+        autocorr.values = np.roll(autocorr.values, shift, axis=1)
+        autocorr.first_phase = -shift*self.dphase_deg
 
-        if do_shift:
-            autocorr = np.roll(autocorr, shift, axis=1)
-            lags    -= shift*self.dphase_deg
-
-        return autocorr, lags, shift
+        return autocorr
 
     def plot_image(self, ax, **kwargs):
         # Plots the pulsestack as an image
