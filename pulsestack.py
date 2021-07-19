@@ -179,6 +179,8 @@ class Pulsestack:
 
     def set_fiducial_phase(self, phase_deg):
         self.first_phase -= phase_deg
+        ph_lo, ph_hi = self.onpulse
+        self.set_onpulse(ph_lo - phase_deg, ph_hi - phase_deg)
 
     def crop(self, pulse_range=None, phase_deg_range=None, inplace=True):
         '''
