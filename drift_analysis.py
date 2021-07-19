@@ -704,7 +704,7 @@ class ModelFit(pulsestack.Pulsestack):
         '''
         d = driftband
 
-        p = np.arange(self.first_pulse, self.last_pulse, pstep)
+        p = np.arange(self.first_pulse, self.last_pulse + pstep, pstep)
         ph = self.calc_phase(p, d)
 
         if phlim is not None:
