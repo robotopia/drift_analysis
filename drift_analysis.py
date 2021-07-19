@@ -565,6 +565,14 @@ class ModelFit(pulsestack.Pulsestack):
     def calc_driftrate_decay_rate(self, pulse):
         return -self.calc_driftrate_derivative(pulse)/self.calc_driftrate(pulse)
 
+    def calc_residual(self, pulse, phase, driftband):
+        '''
+        Calculates subpulse phase minus model phase
+        '''
+        model_phase = self.calc_phase(pulse, driftband)
+        residual = phase - model_phase
+        return residual
+
     def get_nearest_driftband(self, pulse, phase):
         p  = pulse
         ph = phase
@@ -945,14 +953,14 @@ class DriftAnalysisInteractivePlot(DriftAnalysis):
 
                 self.set_default_mode()
 
-        elif self.mode == "zoom_drift_sequence" or self.mode == "switch_to_quadratic_and_solve" or self.mode == "assign_driftbands" or self.mode == "switch_to_exponential_and_solve" or self.mode == "display_model_details":
+        elif self.mode == "zoom_drift_sequence" or self.mode == "switch_to_quadratic_and_solve" or self.mode == "assign_driftbands" or self.mode == "switch_to_exponential_and_solve" or self.mode == "display_model_details" or self.mode == "plot_residuals":
             if event.inaxes == self.ax:
                 pulse_idx = self.get_pulse_bin(event.ydata, inrange=False)
                 self.selected = self.drift_sequences.get_sequence_number(pulse_idx, self.npulses)
                 if self.selected is not None:
 
                     # In some modes, the user only can select sequences with existing models
-                    if self.mode == "switch_to_quadratic_and_solve" or self.mode == "switch_to_exponential_and_solve" or self.mode == "assign_driftbands" or self.mode == "display_model_details":
+                    if self.mode == "switch_to_quadratic_and_solve" or self.mode == "switch_to_exponential_and_solve" or self.mode == "assign_driftbands" or self.mode == "display_model_details" or self.mode == "plot_residuals":
                         if self.selected not in self.model_fits.keys():
                             return
 
@@ -1036,7 +1044,7 @@ class DriftAnalysisInteractivePlot(DriftAnalysis):
                 print("d     Plot the cross-correlation of pulses with their successor")
                 print("A     Plot the auto-correlation of each pulse")
                 print("D     Assign the nearest model driftband to each subpulse")
-                #print("r     Calculate drift rates from cross correlations")
+                print("r     Plot subpulse residuals from driftband model")
                 print("@     Perform quadratic fitting via subpulse selection (McSweeney et al, 2017)")
                 print("#     Switch to quadratic model and redo fit using all subpulses assigned driftbands in sequence")
                 print("E     Switch to exponential model and redo fit using all subpulses assigned driftbands in sequence")
@@ -1044,6 +1052,7 @@ class DriftAnalysisInteractivePlot(DriftAnalysis):
                 print("&     Plot the driftrate decay rate of the model fits against pulse number")
                 print("%     3D plot of drift rate (d) vs d-dot vs pulse number")
                 print("*     Plot the (exponential) model parameters as a function of pulse number")
+                print("(     Plot the (quadratic) model parameters as a function of pulse number")
                 print("m     Print model parameters to stdout")
                 print("+/-   Set upper/lower colorbar range")
 
@@ -1252,6 +1261,11 @@ class DriftAnalysisInteractivePlot(DriftAnalysis):
                 self.fig.canvas.draw()
                 self.mode = "assign_driftbands"
 
+            elif event.key == "r":
+                self.ax.set_title("Select a drift sequence by clicking on the pulsestack.\nPress enter to confirm, esc to cancel.")
+                self.fig.canvas.draw()
+                self.mode = "plot_residuals"
+
             elif event.key == "A":
                 # Start a new instance of DriftAnalysisInteractivePlot for the auto correlation
                 self.ac = DriftAnalysisInteractivePlot()
@@ -1327,11 +1341,14 @@ class DriftAnalysisInteractivePlot(DriftAnalysis):
                 dr_ax.set_zlabel("Drift rate derivative (deg/pulse^2)")
                 dr_fig.show()
 
-            elif event.key == "*":
+            elif event.key in ["*", "("]:
                 # Define what model is going to be plotted here
                 # (Use a dummy object to get the necessary parameters)
                 dummy = ModelFit()
-                dummy.model_name = "exponential"
+                if event.key == "*":
+                    dummy.model_name = "exponential"
+                elif event.key == "(":
+                    dummy.model_name = "quadratic"
                 nparameters = dummy.get_nparameters()
                 param_names = dummy.get_parameter_names(display_type='latex')
 
@@ -1692,6 +1709,42 @@ class DriftAnalysisInteractivePlot(DriftAnalysis):
                 # Mark that unsaved changes have been made
                 if self.jsonfile is not None:
                     self.fig.canvas.manager.set_window_title(self.jsonfile + "*")
+
+                self.deselect()
+                self.set_default_mode()
+
+            elif event.key == "escape":
+                self.deselect()
+                self.set_default_mode()
+
+        elif self.mode == "plot_residuals":
+            if event.key == "enter":
+                # Here, self.selected is the drift sequence idx
+                if self.selected is None:
+                    return
+
+                # Calculate residuals
+                pulse_range = self.model_fits[self.selected].get_pulse_bounds()
+                subset = self.subpulses.in_pulse_range(pulse_range, with_valid_driftband=True)
+
+                ph = self.subpulses.get_phases(subset=subset)
+                p  = self.subpulses.get_pulses(subset=subset)
+                d  = self.subpulses.get_driftbands(subset=subset)
+
+                residuals = self.model_fits[self.selected].calc_residual(p, ph, d)
+
+                # Plot them both as a function of pulse number and phase
+                res_fig, res_axs = plt.subplots(nrows=2, ncols=1)
+
+                res_axs[0].plot(p, residuals, '.')
+                res_axs[0].set_xlabel("Pulse number")
+                res_axs[0].set_ylabel("Residual phase (deg)")
+
+                res_axs[1].plot(ph, residuals, '.')
+                res_axs[1].set_xlabel("Subpulse phase (deg)")
+                res_axs[1].set_ylabel("Residual phase (deg)")
+
+                res_fig.show()
 
                 self.deselect()
                 self.set_default_mode()
