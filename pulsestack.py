@@ -15,6 +15,9 @@ class Pulsestack:
         self.dpulse      = None
         self.dphase_deg  = None
         self.onpulse     = None
+        self.complex     = None
+        self.xlabel      = None
+        self.ylabel      = None
 
     def serialize(self):
         serialized = {}
@@ -45,6 +48,15 @@ class Pulsestack:
 
         if self.onpulse is not None:
             serialized["onpulse"] = list(self.onpulse)
+
+        if self.complex is not None:
+            serialized["complex"] = self.complex
+
+        if self.xlabel is not None:
+            serialized["xlabel"] = self.xlabel
+
+        if self.ylabel is not None:
+            serialized["ylabel"] = self.ylabel
 
         if self.values is not None:
             serialized["values"] = list(self.values.flatten())
@@ -98,6 +110,21 @@ class Pulsestack:
         else:
             self.onpulse = None
 
+        if "complex" in data.keys():
+            self.complex = data["complex"]
+        else:
+            self.complex = "real" # Assume real for backwards compatibility
+
+        if "xlabel" in data.keys():
+            self.xlabel = data["xlabel"]
+        else:
+            self.xlabel = None
+
+        if "ylabel" in data.keys():
+            self.ylabel = data["ylabel"]
+        else:
+            self.ylabel = None
+
         if "values" in data.keys() and self.npulses is not None and self.nbins is not None:
             self.values = np.reshape(data["values"], (self.npulses, self.nbins))
         else:
@@ -142,6 +169,8 @@ class Pulsestack:
         self.dpulse     = 1 # i.e. 1 pulse per row
         self.dphase_deg = 360/self.nbins
 
+        self.complex = "real"
+
     def set_onpulse(self, ph_lo, ph_hi):
         self.onpulse = [ph_lo, ph_hi]
 
@@ -179,8 +208,9 @@ class Pulsestack:
 
     def set_fiducial_phase(self, phase_deg):
         self.first_phase -= phase_deg
-        ph_lo, ph_hi = self.onpulse
-        self.set_onpulse(ph_lo - phase_deg, ph_hi - phase_deg)
+        if self.onpulse is not None:
+            ph_lo, ph_hi = self.onpulse
+            self.set_onpulse(ph_lo - phase_deg, ph_hi - phase_deg)
 
     def crop(self, pulse_range=None, phase_deg_range=None, inplace=True):
         '''
@@ -267,10 +297,25 @@ class Pulsestack:
 
         return autocorr
 
+    def LRFS(self, pulse_range=None):
+        lrfs = self.crop(pulse_range=pulse_range, inplace=False)
+        lrfs.values = np.fft.rfft(lrfs.values, axis=0)[1:,:]
+        lrfs.complex = "complex"
+        freqs = np.fft.rfftfreq(lrfs.npulses, lrfs.dpulse)
+        df    = freqs[1] - freqs[0]
+        lrfs.npulses -= 1
+        lrfs.dpulse   = df
+        lrfs.first_pulse = df
+        lrfs.ylabel   = "Cycles per period"
+        return lrfs
+
     def plot_image(self, ax, **kwargs):
         # Plots the pulsestack as an image
         extent = self.calc_image_extent()
-        self.ps_image = ax.imshow(self.values, aspect='auto', origin='lower', interpolation='none', extent=extent, cmap='hot', **kwargs)
+        if self.complex == "real":
+            self.ps_image = ax.imshow(self.values, aspect='auto', origin='lower', interpolation='none', extent=extent, cmap='hot', **kwargs)
+        else:
+            self.ps_image = ax.imshow(np.abs(self.values), aspect='auto', origin='lower', interpolation='none', extent=extent, cmap='hot', **kwargs)
         self.cbar = plt.colorbar(mappable=self.ps_image, ax=ax)
-        ax.set_xlabel("Pulse phase (deg)")
-        ax.set_ylabel("Pulse number")
+        ax.set_xlabel("Pulse phase (deg)" if self.xlabel is None else self.xlabel)
+        ax.set_ylabel("Pulse number" if self.ylabel is None else self.ylabel)

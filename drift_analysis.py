@@ -668,6 +668,9 @@ class ModelFit(pulsestack.Pulsestack):
             self.print_unrecognised_model_error()
             return
 
+    def calc_P3(self, pulse):
+        return self.calc_P2()/self.calc_driftrate(pulse)
+
     def get_driftband_range(self, phlim):
         # Figure out if drift rate is positive or negative (at the first pulse)
         p0 = self.first_pulse
@@ -1107,6 +1110,7 @@ class DriftAnalysisInteractivePlot(DriftAnalysis):
                 print("r     Plot subpulse residuals from driftband model")
                 print("@     Perform quadratic fitting via subpulse selection (McSweeney et al, 2017)")
                 print("#     Switch to quadratic model and redo fit using all subpulses assigned driftbands in sequence")
+                print("3     Plot model P3 as a function of pulse number")
                 print("E     Switch to exponential model and redo fit using all subpulses assigned driftbands in sequence")
                 print("$     Plot the drift rate of the model fits against pulse number")
                 print("&     Plot the driftrate decay rate of the model fits against pulse number")
@@ -1247,21 +1251,11 @@ class DriftAnalysisInteractivePlot(DriftAnalysis):
                 profile_fig.show()
 
             elif event.key == "T":
-                cropped = self.crop(pulse_range=self.ax.get_ylim(), phase_deg_range=self.ax.get_xlim(), inplace=False)
-
                 # Make the LRFS
-                lrfs = np.fft.rfft(cropped.values, axis=0)
-                freqs = np.fft.rfftfreq(cropped.npulses, cropped.dpulse)
-                df    = freqs[1] - freqs[0]
-
-                profile_fig, profile_ax = plt.subplots()
-                extent = cropped.calc_image_extent()
-                extent = (extent[0], extent[1], freqs[1] - df/2, freqs[-1] + df/2)
-                profile_ax.imshow(np.abs(lrfs[1:,:]), aspect='auto', origin='lower', interpolation='none', cmap='hot', extent=extent)
-                profile_ax.set_xlabel("Pulse phase (deg)")
-                profile_ax.set_ylabel("cycles per period")
-                profile_ax.set_title("LRFS of pulses {} to {}".format(cropped.first_pulse, cropped.first_pulse + (cropped.npulses - 1)*cropped.dpulse))
-                profile_fig.show()
+                lrfs = self.LRFS(pulse_range=self.ax.get_ylim())
+                lrfs_fig, lrfs_ax = plt.subplots()
+                lrfs.plot_image(ax=lrfs_ax)
+                lrfs_fig.show()
 
             elif event.key == "v":
                 self.ax.set_title("Toggle visibility mode. Press escape when finished.\nsubpulses (.), drift mode boundaries (/), quadratic fits (@)")
@@ -1371,6 +1365,19 @@ class DriftAnalysisInteractivePlot(DriftAnalysis):
                 dr_ax.set_xlabel("Pulse number")
                 dr_ax.set_ylabel("Drift rate (deg/pulse)")
                 dr_fig.show()
+
+            elif event.key == "3":
+                P3_fig, P3_ax = plt.subplots()
+                for seq in self.model_fits:
+                    pulse_range = self.model_fits[seq].get_pulse_bounds()
+                    pulse_idx_range = self.get_pulse_bin(pulse_range)
+                    pulse_idxs = np.arange(pulse_idx_range[0], pulse_idx_range[1] + 1)
+                    pulses     = self.get_pulse_from_bin(pulse_idxs)
+                    P3s        = np.abs(self.model_fits[seq].calc_P3(pulses))
+                    P3_ax.plot(pulses, P3s, 'k')
+                P3_ax.set_xlabel("Pulse number")
+                P3_ax.set_ylabel("$P_3/P_1$")
+                P3_fig.show()
 
             elif event.key == "&":
                 dr_fig, dr_ax = plt.subplots()
