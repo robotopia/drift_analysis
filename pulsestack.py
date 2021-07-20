@@ -59,7 +59,11 @@ class Pulsestack:
             serialized["ylabel"] = self.ylabel
 
         if self.values is not None:
-            serialized["values"] = list(self.values.flatten())
+            flattened = self.values.flatten()
+            if self.complex is None or self.complex == "real":
+                serialized["values"] = list(flattened)
+            elif self.complex == "complex":
+                serialized["values"] = {"real": list(np.real(flattened)), "imag": list(np.imag(flattened))}
 
         return serialized
 
@@ -126,7 +130,12 @@ class Pulsestack:
             self.ylabel = None
 
         if "values" in data.keys() and self.npulses is not None and self.nbins is not None:
-            self.values = np.reshape(data["values"], (self.npulses, self.nbins))
+            if self.complex is None or self.complex == "real":
+                self.values = np.reshape(data["values"], (self.npulses, self.nbins))
+            elif self.complex == "complex":
+                real = data["values"]["real"]
+                imag = data["values"]["imag"]
+                self.values = np.reshape(real + 1j*imag, (self.npulses, self.nbins))
         else:
             self.values = None
 
