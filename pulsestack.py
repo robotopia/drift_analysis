@@ -133,9 +133,9 @@ class Pulsestack:
             if self.complex is None or self.complex == "real":
                 self.values = np.reshape(data["values"], (self.npulses, self.nbins))
             elif self.complex == "complex":
-                real = data["values"]["real"]
-                imag = data["values"]["imag"]
-                self.values = np.reshape(real + 1j*imag, (self.npulses, self.nbins))
+                re = np.array(data["values"]["real"])
+                im = np.array(data["values"]["imag"])
+                self.values = np.reshape(re + 1j*im, (self.npulses, self.nbins))
         else:
             self.values = None
 
@@ -284,6 +284,7 @@ class Pulsestack:
         shift = self.nbins//2
         crosscorr.values = np.roll(crosscorr.values, shift, axis=1)
         crosscorr.first_phase = -shift*self.dphase_deg
+        crossorr.xlabel = "Correlation lag (deg)"
 
         # Remember, there are now one fewer pulses!
         crosscorr.npulses -= 1
@@ -303,6 +304,7 @@ class Pulsestack:
         shift = self.nbins//2
         autocorr.values = np.roll(autocorr.values, shift, axis=1)
         autocorr.first_phase = -shift*self.dphase_deg
+        autocorr.xlabel = "Correlation lag (deg)"
 
         return autocorr
 
@@ -312,7 +314,7 @@ class Pulsestack:
         lrfs.complex = "complex"
         freqs = np.fft.rfftfreq(lrfs.npulses, lrfs.dpulse)
         df    = freqs[1] - freqs[0]
-        lrfs.npulses -= 1
+        lrfs.npulses  = lrfs.values.shape[0]
         lrfs.dpulse   = df
         lrfs.first_pulse = df
         lrfs.ylabel   = "Cycles per period"

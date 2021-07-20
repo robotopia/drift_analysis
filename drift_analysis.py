@@ -1250,13 +1250,6 @@ class DriftAnalysisInteractivePlot(DriftAnalysis):
                 profile_ax.set_title("Profile of pulses {} to {}".format(cropped.first_pulse, cropped.first_pulse + (cropped.npulses - 1)*cropped.dpulse))
                 profile_fig.show()
 
-            elif event.key == "T":
-                # Make the LRFS
-                lrfs = self.LRFS(pulse_range=self.ax.get_ylim())
-                lrfs_fig, lrfs_ax = plt.subplots()
-                lrfs.plot_image(ax=lrfs_ax)
-                lrfs_fig.show()
-
             elif event.key == "v":
                 self.ax.set_title("Toggle visibility mode. Press escape when finished.\nsubpulses (.), drift mode boundaries (/), quadratic fits (@)")
                 self.fig.canvas.draw()
@@ -1321,6 +1314,33 @@ class DriftAnalysisInteractivePlot(DriftAnalysis):
                 self.fig.canvas.draw()
                 self.mode = "plot_residuals"
 
+            elif event.key == "T":
+                # Start a new instance of DriftAnalysisInteractivePlot for the LRFS
+                self.lrfs = DriftAnalysisInteractivePlot()
+
+                # Make the LRFS and copy the necessary fields across
+                lrfs = self.LRFS(pulse_range=self.ax.get_ylim())
+
+                self.lrfs.stokes      = lrfs.stokes
+                self.lrfs.npulses     = lrfs.npulses
+                self.lrfs.nbins       = lrfs.nbins
+                self.lrfs.first_pulse = lrfs.first_pulse
+                self.lrfs.first_phase = lrfs.first_phase
+                self.lrfs.dpulse      = lrfs.dpulse
+                self.lrfs.dphase_deg  = lrfs.dphase_deg
+                self.lrfs.complex     = lrfs.complex
+                self.lrfs.xlabel      = lrfs.xlabel
+                self.lrfs.ylabel      = lrfs.ylabel
+                self.lrfs.values      = lrfs.values
+
+                # Remove all the subpulses, models, and drift sequence boundaries
+                self.lrfs.subpulses = Subpulses()
+                self.lrfs.model_fits = {}
+                self.lrfs.drift_sequences = DriftSequences()
+
+                # Make it interactive!
+                self.lrfs.start()
+
             elif event.key == "A":
                 # Start a new instance of DriftAnalysisInteractivePlot for the auto correlation
                 self.ac = DriftAnalysisInteractivePlot()
@@ -1334,6 +1354,9 @@ class DriftAnalysisInteractivePlot(DriftAnalysis):
                 self.ac.first_phase = autocorr.first_phase
                 self.ac.dpulse      = autocorr.dpulse
                 self.ac.dphase_deg  = autocorr.dphase_deg
+                self.ac.complex     = autocorr.complex
+                self.ac.xlabel      = autocorr.xlabel
+                self.ac.ylabel      = autocorr.ylabel
                 self.ac.values      = autocorr.values
 
                 # Remove all the subpulses and models
