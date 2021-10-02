@@ -151,6 +151,9 @@ class Subpulses:
         else:
             return self.data[subset, 1]
 
+    def count_unique_pulse_numbers(self, subset=None):
+        return len(set(self.get_pulses(subset)))
+
     def get_widths(self, subset=None):
         if subset is None:
             return self.data[:,2]
@@ -1120,6 +1123,7 @@ class DriftAnalysisInteractivePlot(DriftAnalysis):
                 print("m     Print model parameters to stdout")
                 print("+/-   Set upper/lower colorbar range")
                 print("x     Plot the maximum pixels in each pulse")
+                print("n     Print the nulling fraction (i.e. the fraction of pulses without subpulses)")
 
             elif event.key == "j":
                 self.save_json()
@@ -1510,6 +1514,11 @@ class DriftAnalysisInteractivePlot(DriftAnalysis):
                     self.ax.set_title("Select a drift sequence by clicking on the pulsestack.\nPress enter to confirm, esc to cancel.")
                     self.fig.canvas.draw()
                     self.mode = "display_model_details"
+
+            elif event.key == "n":
+                nburstpulses = self.subpulses.count_unique_pulse_numbers()
+                nnullpulses = self.npulses - nburstpulses
+                print("Nulling fraction = {}/{} = {:.1f}".format(nnullpulses, self.npulses, nnullpulses/self.npulses*100))
 
         ########################################
         # SPECIALISED KEYS FOR DIFFERENT MODES #
