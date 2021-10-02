@@ -1119,6 +1119,7 @@ class DriftAnalysisInteractivePlot(DriftAnalysis):
                 print("(     Plot the (quadratic) model parameters as a function of pulse number")
                 print("m     Print model parameters to stdout")
                 print("+/-   Set upper/lower colorbar range")
+                print("x     Plot the maximum pixels in each pulse")
 
             elif event.key == "j":
                 self.save_json()
@@ -1249,6 +1250,26 @@ class DriftAnalysisInteractivePlot(DriftAnalysis):
                 profile_ax.set_ylabel("Flux density (a.u.)")
                 profile_ax.set_title("Profile of pulses {} to {}".format(cropped.first_pulse, cropped.first_pulse + (cropped.npulses - 1)*cropped.dpulse))
                 profile_fig.show()
+
+            elif event.key == "x":
+                if self.show_smooth == True:
+                    cropped = self.visible_ps.crop(pulse_range=self.ax.get_ylim(), phase_deg_range=self.ax.get_xlim(), inplace=False)
+                else:
+                    cropped = self.crop(pulse_range=self.ax.get_ylim(), phase_deg_range=self.ax.get_xlim(), inplace=False)
+
+                # Make the maxima array and an array of pulses
+                maxes = np.max(cropped.values, axis=1)
+                pulses = np.arange(cropped.npulses)*cropped.dpulse + cropped.first_pulse
+
+                maxes_fig, maxes_ax = plt.subplots()
+                maxes_ax.plot(pulses, maxes)
+                maxes_ax.set_xlabel("Pulse number")
+                maxes_ax.set_ylabel("Flux density (a.u.)")
+                maxes_ax.set_title("Maximum pixels in each pulse")
+                maxes_fig.show()
+
+                if self.jsonfile is not None:
+                    np.savetxt(self.jsonfile + ".maxima", np.transpose([pulses, maxes]))
 
             elif event.key == "v":
                 self.ax.set_title("Toggle visibility mode. Press escape when finished.\nsubpulses (.), drift mode boundaries (/), quadratic fits (@)")
