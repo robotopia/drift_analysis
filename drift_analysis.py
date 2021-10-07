@@ -794,17 +794,24 @@ class DriftAnalysis(pulsestack.Pulsestack):
         else:
             self.maxima_threshold = maxima_threshold
 
-        is_bigger_than_left  = self.values[:,1:-1] >= self.values[:,:-2]
-        is_bigger_than_right = self.values[:,1:-1] >= self.values[:,2:]
+        if self.onpulse is None:
+            leading_bin  =  1
+            trailing_bin = self.nbins - 1
+        else:
+            leading_bin = int(np.ceil(self.get_phase_bin(self.onpulse[0])))
+            trailing_bin = int(np.floor(self.get_phase_bin(self.onpulse[1])))
+
+        is_bigger_than_left  = self.values[:,leading_bin+1:trailing_bin] >= self.values[:,leading_bin:trailing_bin-1]
+        is_bigger_than_right = self.values[:,leading_bin+1:trailing_bin] >= self.values[:,leading_bin+2:trailing_bin+1]
         is_local_max = np.logical_and(is_bigger_than_left, is_bigger_than_right)
 
         if maxima_threshold is not None:
-            is_local_max = np.logical_and(is_local_max, self.values[:,1:-1] > maxima_threshold)
+            is_local_max = np.logical_and(is_local_max, self.values[:,leading_bin+1:trailing_bin] > maxima_threshold)
 
         self.max_locations = np.array(np.where(is_local_max)).astype(float)
 
-        # Add one to phase (bin) locations because of previous splicing
-        self.max_locations[1,:] += 1
+        # Add leading bin to phase (bin) locations because of previous splicing
+        self.max_locations[1,:] += leading_bin
 
         # Convert locations to data coordinates (pulse and phase)
         self.max_locations[0,:] = self.max_locations[0,:]*self.dpulse + self.first_pulse
@@ -1342,13 +1349,12 @@ class DriftAnalysisInteractivePlot(DriftAnalysis):
                 self.cc = DriftAnalysisInteractivePlot()
 
                 # Let the user specify a new phase resolution
+                dphase_deg = None
                 root = tkinter.Tk()
                 root.withdraw()
                 upsampling_factor = tkinter.simpledialog.askfloat("Upsampling factor", "Input factor increase of bin resolution", parent=root)
                 if upsampling_factor:
                     dphase_deg = self.dphase_deg/upsampling_factor
-                else:
-                    dphase_deg = None
 
                 # Actually do the cross correlation and "copy" it across to this instance
                 crosscorr = self.cross_correlate_successive_pulses(dphase_deg=dphase_deg)

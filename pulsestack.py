@@ -271,7 +271,7 @@ class Pulsestack:
                   self.first_pulse - 0.5*self.dpulse,
                   self.first_pulse + (self.values.shape[0] - 0.5)*self.dpulse]
 
-    def cross_correlate_successive_pulses(self, smooth_width_degs=None, dphase_deg=None):
+    def cross_correlate_successive_pulses(self, dphase_deg=None):
         # Calculate the cross correlation via the Fourier Transform method and
         # put the result into its own "pulsestack"
         crosscorr = copy.copy(self)
