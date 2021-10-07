@@ -271,23 +271,49 @@ class Pulsestack:
                   self.first_pulse - 0.5*self.dpulse,
                   self.first_pulse + (self.values.shape[0] - 0.5)*self.dpulse]
 
-    def cross_correlate_successive_pulses(self):
+    def cross_correlate_successive_pulses(self, smooth_width_degs=None, dphase_deg=None):
         # Calculate the cross correlation via the Fourier Transform method and
         # put the result into its own "pulsestack"
         crosscorr = copy.copy(self)
 
-        rffted    = np.fft.rfft(self.values, axis=1)
-        corred    = np.conj(rffted[:-1,:]) * rffted[1:,:]
-        crosscorr.values = np.fft.irfft(corred, axis=1)
+        # Work out the number of phase bins from requested dphase_deg
+        if dphase_deg is None:
+            nbins = self.nbins
+            dphase_deg = self.dphase_deg
+        else:
+            nbins = int(np.round((self.nbins * self.dphase_deg) / dphase_deg))
+            dphase_deg = (self.nbins * self.dphase_deg) / nbins
+        padding_size = nbins - self.nbins
+
+        # Correlate each pulse with its successor
+        ffted    = np.fft.fft(self.values, axis=1)
+        corred   = np.conj(ffted[:-1,:]) * ffted[1:,:]
+
+        # There are now one fewer pulses and the bin size is different
+        crosscorr.npulses -= 1
+        crosscorr.dphase_deg = dphase_deg
+        crosscorr.nbins = nbins
+
+        # Include padded zeros (downsampling is not supported)
+        if padding_size > 0:
+
+            nyquist_idx = (self.nbins + 1) // 2
+
+            # If there's a Nyquist bin, zero it
+            if self.nbins % 2 == 0:
+                corred[:,nyquist_idx] = 0. + 0.j
+
+            # Insert the zero padding at the Nyquist frequency
+            corred = np.hstack((corred[:,:nyquist_idx], np.zeros((crosscorr.npulses, padding_size)), corred[:,nyquist_idx:]))
+
+        # Go back to the time (=lag) domain
+        crosscorr.values = np.real(np.fft.ifft(corred, axis=1))
 
         # Put zero lag in the centre
-        shift = self.nbins//2
+        shift = nbins//2
         crosscorr.values = np.roll(crosscorr.values, shift, axis=1)
-        crosscorr.first_phase = -shift*self.dphase_deg
-        crossorr.xlabel = "Correlation lag (deg)"
-
-        # Remember, there are now one fewer pulses!
-        crosscorr.npulses -= 1
+        crosscorr.first_phase = -shift*dphase_deg
+        crosscorr.xlabel = "Correlation lag (deg)"
 
         return crosscorr
 
@@ -308,8 +334,13 @@ class Pulsestack:
 
         return autocorr
 
-    def LRFS(self, pulse_range=None):
+    def LRFS(self, pulse_range=None, window=None):
+
         lrfs = self.crop(pulse_range=pulse_range, inplace=False)
+
+        if window == "hamming":
+            lrfs.values = lrfs.values * np.hamming(lrfs.npulses)[:,np.newaxis]
+
         lrfs.values = np.fft.rfft(lrfs.values, axis=0)[1:,:]
         lrfs.complex = "complex"
         freqs = np.fft.rfftfreq(lrfs.npulses, lrfs.dpulse)

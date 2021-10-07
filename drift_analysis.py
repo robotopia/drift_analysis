@@ -504,6 +504,8 @@ class ModelFit(pulsestack.Pulsestack):
         self.parameters = popt
         self.pcov       = pcov
 
+        print(self.parameters)
+
     def serialize(self):
         serialized = {}
 
@@ -587,15 +589,43 @@ class ModelFit(pulsestack.Pulsestack):
 
         if self.model_name == "quadratic":
             a1, a2, _, _ = self.parameters
-            return 2*a1*p + a2
+            D = 2*a1*p + a2
+            return D
 
         elif self.model_name == "exponential":
             D0, k, _, _ = self.parameters
-            return D0*np.exp(-k*(p - p0))
+            D = D0*np.exp(-k*(p - p0))
+            return D
 
         else:
             self.print_unrecognised_model_error()
             return
+
+    def calc_driftrate_err(self, pulse):
+        '''
+        Returns the fully covariant error on the driftrate at the specified pulse number
+        '''
+        # If pulse is a single number, force it to be an array
+        pulse = np.squeeze([pulse])
+
+        # Calculate the Jacobian
+        if self.model_name == "quadratic":
+            J = np.array([[2*p, 1, 0, 0] for p in pulse]) # Make it an explicit 2D array for easier matrix multiplcation later
+
+        elif self.model_name == "exponential":
+            D0, k, _, _ = self.parameters
+            p0 = self.first_pulse
+            J = np.array([[np.exp(-k*(p - p0)), -(p - p0)*D0*np.exp(-k*(p - p0)), 0, 0] for p in pulse])
+
+        else:
+            self.print_unrecognised_model_error()
+            return
+
+        Derr = np.array([J[i] @ self.pcov @ J[i].T for i in range(len(pulse))])
+        if len(Derr) == 1:
+            Derr = Derr[0]
+
+        return Derr
 
     def calc_driftrate_derivative(self, pulse):
         '''
@@ -651,6 +681,7 @@ class ModelFit(pulsestack.Pulsestack):
 
         elif self.model_name == "exponential":
             D0, k, phi0, P2 = self.parameters
+            p0 = self.first_pulse
             return np.round((ph - (D0/k)*(1 - np.exp(-k*(p - p0))) - phi0)/P2)
 
         else:
@@ -1069,6 +1100,7 @@ class DriftAnalysisInteractivePlot(DriftAnalysis):
 
     def set_default_mode(self):
         self.ax.set_title("Press (capital) 'H' for command list")
+        self.selected_plt = None
         self.fig.canvas.draw()
         self.mode = "default"
 
@@ -1309,8 +1341,17 @@ class DriftAnalysisInteractivePlot(DriftAnalysis):
                 # Start a new instance of DriftAnalysisInteractivePlot for the cross correlation
                 self.cc = DriftAnalysisInteractivePlot()
 
+                # Let the user specify a new phase resolution
+                root = tkinter.Tk()
+                root.withdraw()
+                upsampling_factor = tkinter.simpledialog.askfloat("Upsampling factor", "Input factor increase of bin resolution", parent=root)
+                if upsampling_factor:
+                    dphase_deg = self.dphase_deg/upsampling_factor
+                else:
+                    dphase_deg = None
+
                 # Actually do the cross correlation and "copy" it across to this instance
-                crosscorr = self.cross_correlate_successive_pulses()
+                crosscorr = self.cross_correlate_successive_pulses(dphase_deg=dphase_deg)
                 self.cc.stokes      = crosscorr.stokes
                 self.cc.npulses     = crosscorr.npulses
                 self.cc.nbins       = crosscorr.nbins
@@ -1410,6 +1451,10 @@ class DriftAnalysisInteractivePlot(DriftAnalysis):
                     pulses     = self.get_pulse_from_bin(pulse_idxs)
                     driftrates = self.model_fits[seq].calc_driftrate(pulses)
                     dr_ax.plot(pulses, driftrates, 'k')
+
+                    #errs = self.model_fits[seq].calc_driftrate_err(pulses)
+                    #dr_ax.fill_between(pulses, driftrates + errs, driftrates - errs, alpha=0.2, color='black')
+
                 dr_ax.set_xlabel("Pulse number")
                 dr_ax.set_ylabel("Drift rate (deg/pulse)")
                 dr_fig.show()
