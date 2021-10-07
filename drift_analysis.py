@@ -239,6 +239,24 @@ class Subpulses:
         else:
             return is_in_range
 
+    def in_phase_range(self, phase_range=None, with_valid_driftband=False):
+        '''
+        Returns a logical mask for those subpulses within the specified range
+        '''
+        ph = self.get_phases()
+        if phase_range is not None:
+            ph_lo, ph_hi = phase_range
+            is_in_range = np.logical_and(ph >= ph_lo, ph <= ph_hi)
+        else:
+            is_in_range = np.ones(ph.shape).astype(bool) # Should be an array of all True
+
+        if with_valid_driftband:
+            d = self.get_driftbands()
+            is_valid_driftband = np.logical_not(np.isnan(d))
+            return np.logical_and(is_in_range, is_valid_driftband)
+        else:
+            return is_in_range
+
     def assign_driftbands_to_subpulses(self, model_fit):
         '''
         model_fit - an object of ModelFit
@@ -1135,7 +1153,7 @@ class DriftAnalysisInteractivePlot(DriftAnalysis):
                 print("J     'Save as' to (json) file")
                 print("^     Set subpulses to local maxima")
                 print("S     Toggle pulsestack smoothed with Gaussian filter")
-                print("'     Save subpulse list to text file")
+                print("'     Save subpulses in current view to text file")
                 print("F     Set fiducial point")
                 print("O     Set on-pulse region")
                 print("C     Crop pulsestack to current visible image")
@@ -1209,15 +1227,40 @@ class DriftAnalysisInteractivePlot(DriftAnalysis):
                 if self.subpulses.data is None:
                     print("Subpulse list is empty. Cannot save")
                 else:
-                    root = tkinter.Tk()
-                    root.withdraw()
-                    outfile = tkinter.filedialog.asksaveasfilename(filetypes=(("All files", "*.*"),))
+                    # Get current view limits and get all the subpulses within this view
+                    phase_range = self.ax.get_xlim()
+                    pulse_range = self.ax.get_ylim()
 
-                    # Only proceed if valid filename chosen
-                    if outfile:
-                        header = "List of subpulses from drifting analysis ({})\n".format(__version__)
-                        header += "Pulse | Phase (deg) | Width (deg) | Driftband"
-                        np.savetxt(outfile, self.subpulses.data, header=header)
+                    in_phase_range = self.subpulses.in_phase_range(phase_range)
+                    in_pulse_range = self.subpulses.in_pulse_range(pulse_range)
+
+                    subset = np.logical_and(in_phase_range, in_pulse_range)
+
+                    # Only proceed if there ARE any subpulses within this view
+                    if not np.any(subset):
+                        print("There are no subpulses within the current view. Cannot save")
+                    else:
+                        root = tkinter.Tk()
+                        root.withdraw()
+                        outfile = tkinter.filedialog.asksaveasfilename(filetypes=(("All files", "*.*"),))
+
+                        # Only proceed if valid filename chosen
+                        if outfile:
+                            header = "List of subpulses from drifting analysis ({})\n".format(__version__)
+                            header += "Pulse | Phase (deg) | Width (deg) | Driftband | Pulsestack value"
+
+                            pulses = self.subpulses.get_pulses(subset=subset)
+                            phases = self.subpulses.get_phases(subset=subset)
+                            widths = self.subpulses.get_widths(subset=subset)
+                            driftbands = self.subpulses.get_driftbands(subset=subset)
+                            values = self.get_values(pulses, phases)
+
+                            outdata = np.hstack((pulses[:,np.newaxis],
+                                phases[:,np.newaxis],
+                                widths[:,np.newaxis],
+                                driftbands[:,np.newaxis],
+                                values[:,np.newaxis]))
+                            np.savetxt(outfile, outdata, header=header)
 
             elif event.key == "+":
                 vmin, _ = self.ps_image.get_clim()

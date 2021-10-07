@@ -221,6 +221,22 @@ class Pulsestack:
             ph_lo, ph_hi = self.onpulse
             self.set_onpulse(ph_lo - phase_deg, ph_hi - phase_deg)
 
+    def get_values(self, pulses, phases):
+        '''
+        Get the pulsestack values at the given (list of) pulses and phases
+        '''
+        pulse_bins = np.round(self.get_pulse_bin(pulses, inrange=False)).astype(int)
+        phase_bins = np.round(self.get_phase_bin(phases, inrange=False)).astype(int)
+
+        pulse_inrange = np.logical_and(pulse_bins >= 0, pulse_bins < self.npulses)
+        phase_inrange = np.logical_and(phase_bins >= 0, phase_bins < self.nbins)
+        inrange       = np.logical_and(pulse_inrange, phase_inrange)
+
+        pulse_bins = pulse_bins[inrange]
+        phase_bins = phase_bins[inrange]
+
+        return np.array([self.values[pulse_bins[i], phase_bins[i]] for i in range(len(pulse_bins))])
+
     def crop(self, pulse_range=None, phase_deg_range=None, inplace=True):
         '''
         pulse_range and phase_deg_range are expected to be two-element, 1D lists/arrays
