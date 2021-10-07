@@ -811,7 +811,7 @@ class DriftAnalysis(pulsestack.Pulsestack):
         self.max_locations = np.array(np.where(is_local_max)).astype(float)
 
         # Add leading bin to phase (bin) locations because of previous splicing
-        self.max_locations[1,:] += leading_bin
+        self.max_locations[1,:] += leading_bin + 1
 
         # Convert locations to data coordinates (pulse and phase)
         self.max_locations[0,:] = self.max_locations[0,:]*self.dpulse + self.first_pulse
@@ -1135,6 +1135,7 @@ class DriftAnalysisInteractivePlot(DriftAnalysis):
                 print("J     'Save as' to (json) file")
                 print("^     Set subpulses to local maxima")
                 print("S     Toggle pulsestack smoothed with Gaussian filter")
+                print("'     Save subpulse list to text file")
                 print("F     Set fiducial point")
                 print("O     Set on-pulse region")
                 print("C     Crop pulsestack to current visible image")
@@ -1202,6 +1203,21 @@ class DriftAnalysisInteractivePlot(DriftAnalysis):
                     # Update the colorbar
                     self.cbar.update_normal(self.ps_image)
                     self.fig.canvas.draw()
+
+            elif event.key == "'":
+                # Only proceed if there are subpulses to save!
+                if self.subpulses.data is None:
+                    print("Subpulse list is empty. Cannot save")
+                else:
+                    root = tkinter.Tk()
+                    root.withdraw()
+                    outfile = tkinter.filedialog.asksaveasfilename(filetypes=(("All files", "*.*"),))
+
+                    # Only proceed if valid filename chosen
+                    if outfile:
+                        header = "List of subpulses from drifting analysis ({})\n".format(__version__)
+                        header += "Pulse | Phase (deg) | Width (deg) | Driftband"
+                        np.savetxt(outfile, self.subpulses.data, header=header)
 
             elif event.key == "+":
                 vmin, _ = self.ps_image.get_clim()
