@@ -8,6 +8,7 @@ from numpy.polynomial.polynomial import polyfit, polyval
 
 from mpl_toolkits import mplot3d
 import matplotlib.pyplot as plt
+from matplotlib.ticker import AutoLocator
 
 from scipy.interpolate import interp1d
 from scipy.ndimage import gaussian_filter1d
@@ -1160,7 +1161,8 @@ class DriftAnalysisInteractivePlot(DriftAnalysis):
                 print(".     Add a subpulse")
                 print(">     Delete a subpulse")
                 print("P     Plot the profile of the current view")
-                print("T     Plot the LRFS of the current view")
+                print("t     Make static LRFS of the current view")
+                print("T     Make interactive \"pulsestack\" of the LRFS of the current view")
                 print("/     Add a drift mode boundary")
                 print("?     Delete a drift mode boundary")
                 print("v     Toggle visibility of plot feature")
@@ -1444,6 +1446,58 @@ class DriftAnalysisInteractivePlot(DriftAnalysis):
                 self.ax.set_title("Select a drift sequence by clicking on the pulsestack.\nPress enter to confirm, esc to cancel.")
                 self.fig.canvas.draw()
                 self.mode = "plot_residuals"
+
+            elif event.key == "t":
+                # Make the LRFS of the visible pulse range, but make the phase range equal to the on pulse region
+                lrfs = self.LRFS(pulse_range=self.ax.get_ylim(), phase_deg_range=self.onpulse)
+                freqs = lrfs.get_pulses_array()
+                phases = lrfs.get_phases_array()
+
+                # Calculate the paps
+                paps = np.sum(np.abs(lrfs.values), axis=1)
+                max_paps_idx = np.argmax(paps)
+                f3 = freqs[max_paps_idx]
+                P3 = 1/f3
+                df3 = lrfs.dpulse
+                dP3 = P3*P3*df3
+                print("Best P3 = {} +/- {}".format(P3, dP3))
+
+                # Get the amps and phases of the brightest row
+                amps = np.abs(lrfs.values[max_paps_idx])
+                phse = np.angle(lrfs.values[max_paps_idx], deg=True)
+
+                # Set up the plot axes
+                lrfs_fig = plt.figure()
+                gs = lrfs_fig.add_gridspec(7, 5, hspace=0, wspace=0)
+
+                ax_lrfs = lrfs_fig.add_subplot(gs[1:-1,1:])
+                ax_paps = lrfs_fig.add_subplot(gs[1:-1,:1], sharey=ax_lrfs)
+                ax_amps = lrfs_fig.add_subplot(gs[-1,1:], sharex=ax_lrfs)
+                ax_phse = lrfs_fig.add_subplot(gs[0,1:], sharex=ax_lrfs)
+
+                # .. with various cosmetics
+                ax_paps.set_ylabel(lrfs.ylabel)
+                ax_paps.invert_xaxis()
+                ax_paps.set_xticks([])
+
+                plt.setp(ax_phse.get_xticklabels(), visible=False)
+                ax_phse.set_yticks([-90,0,90])
+
+                ax_amps.set_xlabel(lrfs.xlabel)
+                ax_amps.set_yticks([])
+                #ax_amps.xaxis.set_major_locator(AutoLocator())
+
+                plt.setp(ax_lrfs.get_xticklabels(), visible=False)
+                plt.setp(ax_lrfs.get_yticklabels(), visible=False)
+
+                # Draw the contents
+                lrfs.plot_image(ax_lrfs, colorbar=False)
+                ax_paps.plot(paps, freqs)
+                ax_amps.plot(phases, amps)
+                ax_phse.plot(phases, phse, '.')
+
+                # And show the results in a new window
+                lrfs_fig.show()
 
             elif event.key == "T":
                 # Start a new instance of DriftAnalysisInteractivePlot for the LRFS

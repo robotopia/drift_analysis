@@ -16,8 +16,8 @@ class Pulsestack:
         self.dphase_deg  = None
         self.onpulse     = None
         self.complex     = None
-        self.xlabel      = None
-        self.ylabel      = None
+        self.xlabel      = "Pulse phase (deg)"
+        self.ylabel      = "Pulse number"
 
     def serialize(self):
         serialized = {}
@@ -350,9 +350,9 @@ class Pulsestack:
 
         return autocorr
 
-    def LRFS(self, pulse_range=None, window=None):
+    def LRFS(self, pulse_range=None, phase_deg_range=None, window=None):
 
-        lrfs = self.crop(pulse_range=pulse_range, inplace=False)
+        lrfs = self.crop(pulse_range=pulse_range, phase_deg_range=phase_deg_range, inplace=False)
 
         if window == "hamming":
             lrfs.values = lrfs.values * np.hamming(lrfs.npulses)[:,np.newaxis]
@@ -364,16 +364,19 @@ class Pulsestack:
         lrfs.npulses  = lrfs.values.shape[0]
         lrfs.dpulse   = df
         lrfs.first_pulse = df
-        lrfs.ylabel   = "Cycles per period"
+        lrfs.xlabel   = self.xlabel
+        print(self.xlabel)
+        lrfs.ylabel   = "Frequency (cycles/$P$)"
         return lrfs
 
-    def plot_image(self, ax, **kwargs):
+    def plot_image(self, ax, colorbar=True, **kwargs):
         # Plots the pulsestack as an image
         extent = self.calc_image_extent()
         if self.complex == "real":
             self.ps_image = ax.imshow(self.values, aspect='auto', origin='lower', interpolation='none', extent=extent, cmap='hot', **kwargs)
         else:
             self.ps_image = ax.imshow(np.abs(self.values), aspect='auto', origin='lower', interpolation='none', extent=extent, cmap='hot', **kwargs)
-        self.cbar = plt.colorbar(mappable=self.ps_image, ax=ax)
+        if colorbar:
+            self.cbar = plt.colorbar(mappable=self.ps_image, ax=ax)
         ax.set_xlabel("Pulse phase (deg)" if self.xlabel is None else self.xlabel)
         ax.set_ylabel("Pulse number" if self.ylabel is None else self.ylabel)
