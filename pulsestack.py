@@ -365,9 +365,38 @@ class Pulsestack:
         lrfs.dpulse   = df
         lrfs.first_pulse = df
         lrfs.xlabel   = self.xlabel
-        print(self.xlabel)
         lrfs.ylabel   = "Frequency (cycles/$P$)"
         return lrfs
+
+    def TDFS(self, pulse_range=None, phase_deg_range=None, window=None):
+
+        tdfs = self.crop(pulse_range=pulse_range, phase_deg_range=phase_deg_range, inplace=False)
+
+        if window == "hamming":
+            tdfs.values = tdfs.values * np.hamming(tdfs.npulses)[:,np.newaxis]
+
+        tdfs.values = np.fft.rfft(tdfs.values, axis=0)[1:,:]
+        tdfs.values = np.fft.fft(tdfs.values, axis=1)
+        tdfs.complex = "complex"
+
+        freqs2 = np.fft.fftfreq(tdfs.nbins, tdfs.dphase_deg/360.0)
+        freqs3 = np.fft.rfftfreq(tdfs.npulses, tdfs.dpulse)
+
+        df2    = freqs2[1] - freqs2[0]
+        df3    = freqs3[1] - freqs3[0]
+
+        freqs2 = np.fft.fftshift(freqs2)
+        tdfs.values = np.fft.fftshift(tdfs.values, axes=1)
+
+        tdfs.npulses     = tdfs.values.shape[0]
+        tdfs.dphase_deg  = df2
+        tdfs.dpulse      = df3
+        tdfs.first_phase = freqs2[0]
+        tdfs.first_pulse = df3
+        tdfs.xlabel      = "Frequency (cycles/$P$)"
+        tdfs.ylabel      = "Frequency (cycles/$P$)"
+
+        return tdfs
 
     def plot_image(self, ax, colorbar=True, **kwargs):
         # Plots the pulsestack as an image

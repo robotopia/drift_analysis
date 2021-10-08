@@ -1173,6 +1173,7 @@ class DriftAnalysisInteractivePlot(DriftAnalysis):
                 print("r     Plot subpulse residuals from driftband model")
                 print("@     Perform quadratic fitting via subpulse selection (McSweeney et al, 2017)")
                 print("#     Switch to quadratic model and redo fit using all subpulses assigned driftbands in sequence")
+                print("4     Make static 2DFS of the current view")
                 print("3     Plot model P3 as a function of pulse number")
                 print("E     Switch to exponential model and redo fit using all subpulses assigned driftbands in sequence")
                 print("$     Plot the drift rate of the model fits against pulse number")
@@ -1446,6 +1447,17 @@ class DriftAnalysisInteractivePlot(DriftAnalysis):
                 self.ax.set_title("Select a drift sequence by clicking on the pulsestack.\nPress enter to confirm, esc to cancel.")
                 self.fig.canvas.draw()
                 self.mode = "plot_residuals"
+
+            elif event.key == "4":
+                # Make the TDFS of the visible pulse range, but make the phase range equal to the on pulse region
+                tdfs = self.TDFS(pulse_range=self.ax.get_ylim(), phase_deg_range=self.onpulse)
+
+                freqs2 = tdfs.get_phases_array()
+                freqs3 = tdfs.get_pulses_array()
+
+                tdfs_fig, tdfs_ax = plt.subplots()
+                tdfs.plot_image(tdfs_ax, colorbar=False)
+                tdfs_fig.show()
 
             elif event.key == "t":
                 # Make the LRFS of the visible pulse range, but make the phase range equal to the on pulse region
