@@ -15,6 +15,9 @@ class Pulsestack:
         self.dpulse      = None
         self.dphase_deg  = None
         self.onpulse     = None
+        self.complex     = None
+        self.xlabel      = "Pulse phase (deg)"
+        self.ylabel      = "Pulse number"
 
     def serialize(self):
         serialized = {}
@@ -46,8 +49,21 @@ class Pulsestack:
         if self.onpulse is not None:
             serialized["onpulse"] = list(self.onpulse)
 
+        if self.complex is not None:
+            serialized["complex"] = self.complex
+
+        if self.xlabel is not None:
+            serialized["xlabel"] = self.xlabel
+
+        if self.ylabel is not None:
+            serialized["ylabel"] = self.ylabel
+
         if self.values is not None:
-            serialized["values"] = list(self.values.flatten())
+            flattened = self.values.flatten()
+            if self.complex is None or self.complex == "real":
+                serialized["values"] = list(flattened)
+            elif self.complex == "complex":
+                serialized["values"] = {"real": list(np.real(flattened)), "imag": list(np.imag(flattened))}
 
         return serialized
 
@@ -98,8 +114,28 @@ class Pulsestack:
         else:
             self.onpulse = None
 
+        if "complex" in data.keys():
+            self.complex = data["complex"]
+        else:
+            self.complex = "real" # Assume real for backwards compatibility
+
+        if "xlabel" in data.keys():
+            self.xlabel = data["xlabel"]
+        else:
+            self.xlabel = None
+
+        if "ylabel" in data.keys():
+            self.ylabel = data["ylabel"]
+        else:
+            self.ylabel = None
+
         if "values" in data.keys() and self.npulses is not None and self.nbins is not None:
-            self.values = np.reshape(data["values"], (self.npulses, self.nbins))
+            if self.complex is None or self.complex == "real":
+                self.values = np.reshape(data["values"], (self.npulses, self.nbins))
+            elif self.complex == "complex":
+                re = np.array(data["values"]["real"])
+                im = np.array(data["values"]["imag"])
+                self.values = np.reshape(re + 1j*im, (self.npulses, self.nbins))
         else:
             self.values = None
 
@@ -142,6 +178,8 @@ class Pulsestack:
         self.dpulse     = 1 # i.e. 1 pulse per row
         self.dphase_deg = 360/self.nbins
 
+        self.complex = "real"
+
     def set_onpulse(self, ph_lo, ph_hi):
         self.onpulse = [ph_lo, ph_hi]
 
@@ -179,8 +217,25 @@ class Pulsestack:
 
     def set_fiducial_phase(self, phase_deg):
         self.first_phase -= phase_deg
-        ph_lo, ph_hi = self.onpulse
-        self.set_onpulse(ph_lo - phase_deg, ph_hi - phase_deg)
+        if self.onpulse is not None:
+            ph_lo, ph_hi = self.onpulse
+            self.set_onpulse(ph_lo - phase_deg, ph_hi - phase_deg)
+
+    def get_values(self, pulses, phases):
+        '''
+        Get the pulsestack values at the given (list of) pulses and phases
+        '''
+        pulse_bins = np.round(self.get_pulse_bin(pulses, inrange=False)).astype(int)
+        phase_bins = np.round(self.get_phase_bin(phases, inrange=False)).astype(int)
+
+        pulse_inrange = np.logical_and(pulse_bins >= 0, pulse_bins < self.npulses)
+        phase_inrange = np.logical_and(phase_bins >= 0, phase_bins < self.nbins)
+        inrange       = np.logical_and(pulse_inrange, phase_inrange)
+
+        pulse_bins = pulse_bins[inrange]
+        phase_bins = phase_bins[inrange]
+
+        return np.array([self.values[pulse_bins[i], phase_bins[i]] for i in range(len(pulse_bins))])
 
     def crop(self, pulse_range=None, phase_deg_range=None, inplace=True):
         '''
@@ -232,22 +287,49 @@ class Pulsestack:
                   self.first_pulse - 0.5*self.dpulse,
                   self.first_pulse + (self.values.shape[0] - 0.5)*self.dpulse]
 
-    def cross_correlate_successive_pulses(self):
+    def cross_correlate_successive_pulses(self, dphase_deg=None):
         # Calculate the cross correlation via the Fourier Transform method and
         # put the result into its own "pulsestack"
         crosscorr = copy.copy(self)
 
-        rffted    = np.fft.rfft(self.values, axis=1)
-        corred    = np.conj(rffted[:-1,:]) * rffted[1:,:]
-        crosscorr.values = np.fft.irfft(corred, axis=1)
+        # Work out the number of phase bins from requested dphase_deg
+        if dphase_deg is None:
+            nbins = self.nbins
+            dphase_deg = self.dphase_deg
+        else:
+            nbins = int(np.round((self.nbins * self.dphase_deg) / dphase_deg))
+            dphase_deg = (self.nbins * self.dphase_deg) / nbins
+        padding_size = nbins - self.nbins
+
+        # Correlate each pulse with its successor
+        ffted    = np.fft.fft(self.values, axis=1)
+        corred   = np.conj(ffted[:-1,:]) * ffted[1:,:]
+
+        # There are now one fewer pulses and the bin size is different
+        crosscorr.npulses -= 1
+        crosscorr.dphase_deg = dphase_deg
+        crosscorr.nbins = nbins
+
+        # Include padded zeros (downsampling is not supported)
+        if padding_size > 0:
+
+            nyquist_idx = (self.nbins + 1) // 2
+
+            # If there's a Nyquist bin, zero it
+            if self.nbins % 2 == 0:
+                corred[:,nyquist_idx] = 0. + 0.j
+
+            # Insert the zero padding at the Nyquist frequency
+            corred = np.hstack((corred[:,:nyquist_idx], np.zeros((crosscorr.npulses, padding_size)), corred[:,nyquist_idx:]))
+
+        # Go back to the time (=lag) domain
+        crosscorr.values = np.real(np.fft.ifft(corred, axis=1))
 
         # Put zero lag in the centre
-        shift = self.nbins//2
+        shift = nbins//2
         crosscorr.values = np.roll(crosscorr.values, shift, axis=1)
-        crosscorr.first_phase = -shift*self.dphase_deg
-
-        # Remember, there are now one fewer pulses!
-        crosscorr.npulses -= 1
+        crosscorr.first_phase = -shift*dphase_deg
+        crosscorr.xlabel = "Correlation lag (deg)"
 
         return crosscorr
 
@@ -264,13 +346,66 @@ class Pulsestack:
         shift = self.nbins//2
         autocorr.values = np.roll(autocorr.values, shift, axis=1)
         autocorr.first_phase = -shift*self.dphase_deg
+        autocorr.xlabel = "Correlation lag (deg)"
 
         return autocorr
 
-    def plot_image(self, ax, **kwargs):
+    def LRFS(self, pulse_range=None, phase_deg_range=None, window=None):
+
+        lrfs = self.crop(pulse_range=pulse_range, phase_deg_range=phase_deg_range, inplace=False)
+
+        if window == "hamming":
+            lrfs.values = lrfs.values * np.hamming(lrfs.npulses)[:,np.newaxis]
+
+        lrfs.values = np.fft.rfft(lrfs.values, axis=0)[1:,:]
+        lrfs.complex = "complex"
+        freqs = np.fft.rfftfreq(lrfs.npulses, lrfs.dpulse)
+        df    = freqs[1] - freqs[0]
+        lrfs.npulses  = lrfs.values.shape[0]
+        lrfs.dpulse   = df
+        lrfs.first_pulse = df
+        lrfs.xlabel   = self.xlabel
+        lrfs.ylabel   = "Frequency (cycles/$P$)"
+        return lrfs
+
+    def TDFS(self, pulse_range=None, phase_deg_range=None, window=None):
+
+        tdfs = self.crop(pulse_range=pulse_range, phase_deg_range=phase_deg_range, inplace=False)
+
+        if window == "hamming":
+            tdfs.values = tdfs.values * np.hamming(tdfs.npulses)[:,np.newaxis]
+
+        tdfs.values = np.fft.rfft(tdfs.values, axis=0)[1:,:]
+        tdfs.values = np.fft.fft(tdfs.values, axis=1)
+        tdfs.complex = "complex"
+
+        freqs2 = np.fft.fftfreq(tdfs.nbins, tdfs.dphase_deg/360.0)
+        freqs3 = np.fft.rfftfreq(tdfs.npulses, tdfs.dpulse)
+
+        df2    = freqs2[1] - freqs2[0]
+        df3    = freqs3[1] - freqs3[0]
+
+        freqs2 = np.fft.fftshift(freqs2)
+        tdfs.values = np.fft.fftshift(tdfs.values, axes=1)
+
+        tdfs.npulses     = tdfs.values.shape[0]
+        tdfs.dphase_deg  = df2
+        tdfs.dpulse      = df3
+        tdfs.first_phase = freqs2[0]
+        tdfs.first_pulse = df3
+        tdfs.xlabel      = "Frequency (cycles/$P$)"
+        tdfs.ylabel      = "Frequency (cycles/$P$)"
+
+        return tdfs
+
+    def plot_image(self, ax, colorbar=True, **kwargs):
         # Plots the pulsestack as an image
         extent = self.calc_image_extent()
-        self.ps_image = ax.imshow(self.values, aspect='auto', origin='lower', interpolation='none', extent=extent, cmap='hot', **kwargs)
-        self.cbar = plt.colorbar(mappable=self.ps_image, ax=ax)
-        ax.set_xlabel("Pulse phase (deg)")
-        ax.set_ylabel("Pulse number")
+        if self.complex == "real":
+            self.ps_image = ax.imshow(self.values, aspect='auto', origin='lower', interpolation='none', extent=extent, cmap='hot', **kwargs)
+        else:
+            self.ps_image = ax.imshow(np.abs(self.values), aspect='auto', origin='lower', interpolation='none', extent=extent, cmap='hot', **kwargs)
+        if colorbar:
+            self.cbar = plt.colorbar(mappable=self.ps_image, ax=ax)
+        ax.set_xlabel("Pulse phase (deg)" if self.xlabel is None else self.xlabel)
+        ax.set_ylabel("Pulse number" if self.ylabel is None else self.ylabel)

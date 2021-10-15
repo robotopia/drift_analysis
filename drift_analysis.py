@@ -8,6 +8,7 @@ from numpy.polynomial.polynomial import polyfit, polyval
 
 from mpl_toolkits import mplot3d
 import matplotlib.pyplot as plt
+from matplotlib.ticker import AutoLocator
 
 from scipy.interpolate import interp1d
 from scipy.ndimage import gaussian_filter1d
@@ -151,6 +152,9 @@ class Subpulses:
         else:
             return self.data[subset, 1]
 
+    def count_unique_pulse_numbers(self, subset=None):
+        return len(set(self.get_pulses(subset)))
+
     def get_widths(self, subset=None):
         if subset is None:
             return self.data[:,2]
@@ -228,6 +232,24 @@ class Subpulses:
             is_in_range = np.logical_and(p >= p_lo, p <= p_hi)
         else:
             is_in_range = np.ones(p.shape).astype(bool) # Should be an array of all True
+
+        if with_valid_driftband:
+            d = self.get_driftbands()
+            is_valid_driftband = np.logical_not(np.isnan(d))
+            return np.logical_and(is_in_range, is_valid_driftband)
+        else:
+            return is_in_range
+
+    def in_phase_range(self, phase_range=None, with_valid_driftband=False):
+        '''
+        Returns a logical mask for those subpulses within the specified range
+        '''
+        ph = self.get_phases()
+        if phase_range is not None:
+            ph_lo, ph_hi = phase_range
+            is_in_range = np.logical_and(ph >= ph_lo, ph <= ph_hi)
+        else:
+            is_in_range = np.ones(ph.shape).astype(bool) # Should be an array of all True
 
         if with_valid_driftband:
             d = self.get_driftbands()
@@ -501,6 +523,8 @@ class ModelFit(pulsestack.Pulsestack):
         self.parameters = popt
         self.pcov       = pcov
 
+        print(self.parameters)
+
     def serialize(self):
         serialized = {}
 
@@ -584,15 +608,43 @@ class ModelFit(pulsestack.Pulsestack):
 
         if self.model_name == "quadratic":
             a1, a2, _, _ = self.parameters
-            return 2*a1*p + a2
+            D = 2*a1*p + a2
+            return D
 
         elif self.model_name == "exponential":
             D0, k, _, _ = self.parameters
-            return D0*np.exp(-k*(p - p0))
+            D = D0*np.exp(-k*(p - p0))
+            return D
 
         else:
             self.print_unrecognised_model_error()
             return
+
+    def calc_driftrate_err(self, pulse):
+        '''
+        Returns the fully covariant error on the driftrate at the specified pulse number
+        '''
+        # If pulse is a single number, force it to be an array
+        pulse = np.squeeze([pulse])
+
+        # Calculate the Jacobian
+        if self.model_name == "quadratic":
+            J = np.array([[2*p, 1, 0, 0] for p in pulse]) # Make it an explicit 2D array for easier matrix multiplcation later
+
+        elif self.model_name == "exponential":
+            D0, k, _, _ = self.parameters
+            p0 = self.first_pulse
+            J = np.array([[np.exp(-k*(p - p0)), -(p - p0)*D0*np.exp(-k*(p - p0)), 0, 0] for p in pulse])
+
+        else:
+            self.print_unrecognised_model_error()
+            return
+
+        Derr = np.array([J[i] @ self.pcov @ J[i].T for i in range(len(pulse))])
+        if len(Derr) == 1:
+            Derr = Derr[0]
+
+        return Derr
 
     def calc_driftrate_derivative(self, pulse):
         '''
@@ -648,6 +700,7 @@ class ModelFit(pulsestack.Pulsestack):
 
         elif self.model_name == "exponential":
             D0, k, phi0, P2 = self.parameters
+            p0 = self.first_pulse
             return np.round((ph - (D0/k)*(1 - np.exp(-k*(p - p0))) - phi0)/P2)
 
         else:
@@ -667,6 +720,9 @@ class ModelFit(pulsestack.Pulsestack):
         else:
             self.print_unrecognised_model_error()
             return
+
+    def calc_P3(self, pulse):
+        return self.calc_P2()/self.calc_driftrate(pulse)
 
     def get_driftband_range(self, phlim):
         # Figure out if drift rate is positive or negative (at the first pulse)
@@ -757,17 +813,24 @@ class DriftAnalysis(pulsestack.Pulsestack):
         else:
             self.maxima_threshold = maxima_threshold
 
-        is_bigger_than_left  = self.values[:,1:-1] >= self.values[:,:-2]
-        is_bigger_than_right = self.values[:,1:-1] >= self.values[:,2:]
+        if self.onpulse is None:
+            leading_bin  =  1
+            trailing_bin = self.nbins - 1
+        else:
+            leading_bin = int(np.ceil(self.get_phase_bin(self.onpulse[0])))
+            trailing_bin = int(np.floor(self.get_phase_bin(self.onpulse[1])))
+
+        is_bigger_than_left  = self.values[:,leading_bin+1:trailing_bin] >= self.values[:,leading_bin:trailing_bin-1]
+        is_bigger_than_right = self.values[:,leading_bin+1:trailing_bin] >= self.values[:,leading_bin+2:trailing_bin+1]
         is_local_max = np.logical_and(is_bigger_than_left, is_bigger_than_right)
 
         if maxima_threshold is not None:
-            is_local_max = np.logical_and(is_local_max, self.values[:,1:-1] > maxima_threshold)
+            is_local_max = np.logical_and(is_local_max, self.values[:,leading_bin+1:trailing_bin] > maxima_threshold)
 
         self.max_locations = np.array(np.where(is_local_max)).astype(float)
 
-        # Add one to phase (bin) locations because of previous splicing
-        self.max_locations[1,:] += 1
+        # Add leading bin to phase (bin) locations because of previous splicing
+        self.max_locations[1,:] += leading_bin + 1
 
         # Convert locations to data coordinates (pulse and phase)
         self.max_locations[0,:] = self.max_locations[0,:]*self.dpulse + self.first_pulse
@@ -1063,6 +1126,7 @@ class DriftAnalysisInteractivePlot(DriftAnalysis):
 
     def set_default_mode(self):
         self.ax.set_title("Press (capital) 'H' for command list")
+        self.selected_plt = None
         self.fig.canvas.draw()
         self.mode = "default"
 
@@ -1090,13 +1154,15 @@ class DriftAnalysisInteractivePlot(DriftAnalysis):
                 print("J     'Save as' to (json) file")
                 print("^     Set subpulses to local maxima")
                 print("S     Toggle pulsestack smoothed with Gaussian filter")
+                print("'     Save subpulses in current view to text file")
                 print("F     Set fiducial point")
                 print("O     Set on-pulse region")
                 print("C     Crop pulsestack to current visible image")
                 print(".     Add a subpulse")
                 print(">     Delete a subpulse")
                 print("P     Plot the profile of the current view")
-                print("T     Plot the LRFS of the current view")
+                print("t     Make static LRFS of the current view")
+                print("T     Make interactive \"pulsestack\" of the LRFS of the current view")
                 print("/     Add a drift mode boundary")
                 print("?     Delete a drift mode boundary")
                 print("v     Toggle visibility of plot feature")
@@ -1107,6 +1173,8 @@ class DriftAnalysisInteractivePlot(DriftAnalysis):
                 print("r     Plot subpulse residuals from driftband model")
                 print("@     Perform quadratic fitting via subpulse selection (McSweeney et al, 2017)")
                 print("#     Switch to quadratic model and redo fit using all subpulses assigned driftbands in sequence")
+                print("4     Make static 2DFS of the current view")
+                print("3     Plot model P3 as a function of pulse number")
                 print("E     Switch to exponential model and redo fit using all subpulses assigned driftbands in sequence")
                 print("$     Plot the drift rate of the model fits against pulse number")
                 print("&     Plot the driftrate decay rate of the model fits against pulse number")
@@ -1115,6 +1183,8 @@ class DriftAnalysisInteractivePlot(DriftAnalysis):
                 print("(     Plot the (quadratic) model parameters as a function of pulse number")
                 print("m     Print model parameters to stdout")
                 print("+/-   Set upper/lower colorbar range")
+                print("x     Plot the maximum pixels in each pulse")
+                print("n     Print the nulling fraction (i.e. the fraction of pulses without subpulses)")
 
             elif event.key == "j":
                 self.save_json()
@@ -1154,6 +1224,46 @@ class DriftAnalysisInteractivePlot(DriftAnalysis):
                     # Update the colorbar
                     self.cbar.update_normal(self.ps_image)
                     self.fig.canvas.draw()
+
+            elif event.key == "'":
+                # Only proceed if there are subpulses to save!
+                if self.subpulses.data is None:
+                    print("Subpulse list is empty. Cannot save")
+                else:
+                    # Get current view limits and get all the subpulses within this view
+                    phase_range = self.ax.get_xlim()
+                    pulse_range = self.ax.get_ylim()
+
+                    in_phase_range = self.subpulses.in_phase_range(phase_range)
+                    in_pulse_range = self.subpulses.in_pulse_range(pulse_range)
+
+                    subset = np.logical_and(in_phase_range, in_pulse_range)
+
+                    # Only proceed if there ARE any subpulses within this view
+                    if not np.any(subset):
+                        print("There are no subpulses within the current view. Cannot save")
+                    else:
+                        root = tkinter.Tk()
+                        root.withdraw()
+                        outfile = tkinter.filedialog.asksaveasfilename(filetypes=(("All files", "*.*"),))
+
+                        # Only proceed if valid filename chosen
+                        if outfile:
+                            header = "List of subpulses from drifting analysis ({})\n".format(__version__)
+                            header += "Pulse | Phase (deg) | Width (deg) | Driftband | Pulsestack value"
+
+                            pulses = self.subpulses.get_pulses(subset=subset)
+                            phases = self.subpulses.get_phases(subset=subset)
+                            widths = self.subpulses.get_widths(subset=subset)
+                            driftbands = self.subpulses.get_driftbands(subset=subset)
+                            values = self.get_values(pulses, phases)
+
+                            outdata = np.hstack((pulses[:,np.newaxis],
+                                phases[:,np.newaxis],
+                                widths[:,np.newaxis],
+                                driftbands[:,np.newaxis],
+                                values[:,np.newaxis]))
+                            np.savetxt(outfile, outdata, header=header)
 
             elif event.key == "+":
                 vmin, _ = self.ps_image.get_clim()
@@ -1246,22 +1356,25 @@ class DriftAnalysisInteractivePlot(DriftAnalysis):
                 profile_ax.set_title("Profile of pulses {} to {}".format(cropped.first_pulse, cropped.first_pulse + (cropped.npulses - 1)*cropped.dpulse))
                 profile_fig.show()
 
-            elif event.key == "T":
-                cropped = self.crop(pulse_range=self.ax.get_ylim(), phase_deg_range=self.ax.get_xlim(), inplace=False)
+            elif event.key == "x":
+                if self.show_smooth == True:
+                    cropped = self.visible_ps.crop(pulse_range=self.ax.get_ylim(), phase_deg_range=self.ax.get_xlim(), inplace=False)
+                else:
+                    cropped = self.crop(pulse_range=self.ax.get_ylim(), phase_deg_range=self.ax.get_xlim(), inplace=False)
 
-                # Make the LRFS
-                lrfs = np.fft.rfft(cropped.values, axis=0)
-                freqs = np.fft.rfftfreq(cropped.npulses, cropped.dpulse)
-                df    = freqs[1] - freqs[0]
+                # Make the maxima array and an array of pulses
+                maxes = np.max(cropped.values, axis=1)
+                pulses = np.arange(cropped.npulses)*cropped.dpulse + cropped.first_pulse
 
-                profile_fig, profile_ax = plt.subplots()
-                extent = cropped.calc_image_extent()
-                extent = (extent[0], extent[1], freqs[1] - df/2, freqs[-1] + df/2)
-                profile_ax.imshow(np.abs(lrfs[1:,:]), aspect='auto', origin='lower', interpolation='none', cmap='hot', extent=extent)
-                profile_ax.set_xlabel("Pulse phase (deg)")
-                profile_ax.set_ylabel("cycles per period")
-                profile_ax.set_title("LRFS of pulses {} to {}".format(cropped.first_pulse, cropped.first_pulse + (cropped.npulses - 1)*cropped.dpulse))
-                profile_fig.show()
+                maxes_fig, maxes_ax = plt.subplots()
+                maxes_ax.plot(pulses, maxes)
+                maxes_ax.set_xlabel("Pulse number")
+                maxes_ax.set_ylabel("Flux density (a.u.)")
+                maxes_ax.set_title("Maximum pixels in each pulse")
+                maxes_fig.show()
+
+                if self.jsonfile is not None:
+                    np.savetxt(self.jsonfile + ".maxima", np.transpose([pulses, maxes]))
 
             elif event.key == "v":
                 self.ax.set_title("Toggle visibility mode. Press escape when finished.\nsubpulses (.), drift mode boundaries (/), quadratic fits (@)")
@@ -1297,8 +1410,16 @@ class DriftAnalysisInteractivePlot(DriftAnalysis):
                 # Start a new instance of DriftAnalysisInteractivePlot for the cross correlation
                 self.cc = DriftAnalysisInteractivePlot()
 
+                # Let the user specify a new phase resolution
+                dphase_deg = None
+                root = tkinter.Tk()
+                root.withdraw()
+                upsampling_factor = tkinter.simpledialog.askfloat("Upsampling factor", "Input factor increase of bin resolution", parent=root)
+                if upsampling_factor:
+                    dphase_deg = self.dphase_deg/upsampling_factor
+
                 # Actually do the cross correlation and "copy" it across to this instance
-                crosscorr = self.cross_correlate_successive_pulses()
+                crosscorr = self.cross_correlate_successive_pulses(dphase_deg=dphase_deg)
                 self.cc.stokes      = crosscorr.stokes
                 self.cc.npulses     = crosscorr.npulses
                 self.cc.nbins       = crosscorr.nbins
@@ -1327,6 +1448,96 @@ class DriftAnalysisInteractivePlot(DriftAnalysis):
                 self.fig.canvas.draw()
                 self.mode = "plot_residuals"
 
+            elif event.key == "4":
+                # Make the TDFS of the visible pulse range, but make the phase range equal to the on pulse region
+                tdfs = self.TDFS(pulse_range=self.ax.get_ylim(), phase_deg_range=self.onpulse)
+
+                freqs2 = tdfs.get_phases_array()
+                freqs3 = tdfs.get_pulses_array()
+
+                tdfs_fig, tdfs_ax = plt.subplots()
+                tdfs.plot_image(tdfs_ax, colorbar=False)
+                tdfs_fig.show()
+
+            elif event.key == "t":
+                # Make the LRFS of the visible pulse range, but make the phase range equal to the on pulse region
+                lrfs = self.LRFS(pulse_range=self.ax.get_ylim(), phase_deg_range=self.onpulse)
+                freqs = lrfs.get_pulses_array()
+                phases = lrfs.get_phases_array()
+
+                # Calculate the paps
+                paps = np.sum(np.abs(lrfs.values), axis=1)
+                max_paps_idx = np.argmax(paps)
+                f3 = freqs[max_paps_idx]
+                P3 = 1/f3
+                df3 = lrfs.dpulse
+                dP3 = P3*P3*df3
+                print("Best P3 = {} +/- {}".format(P3, dP3))
+
+                # Get the amps and phases of the brightest row
+                amps = np.abs(lrfs.values[max_paps_idx])
+                phse = np.angle(lrfs.values[max_paps_idx], deg=True)
+
+                # Set up the plot axes
+                lrfs_fig = plt.figure()
+                gs = lrfs_fig.add_gridspec(7, 5, hspace=0, wspace=0)
+
+                ax_lrfs = lrfs_fig.add_subplot(gs[1:-1,1:])
+                ax_paps = lrfs_fig.add_subplot(gs[1:-1,:1], sharey=ax_lrfs)
+                ax_amps = lrfs_fig.add_subplot(gs[-1,1:], sharex=ax_lrfs)
+                ax_phse = lrfs_fig.add_subplot(gs[0,1:], sharex=ax_lrfs)
+
+                # .. with various cosmetics
+                ax_paps.set_ylabel(lrfs.ylabel)
+                ax_paps.invert_xaxis()
+                ax_paps.set_xticks([])
+
+                plt.setp(ax_phse.get_xticklabels(), visible=False)
+                ax_phse.set_yticks([-90,0,90])
+
+                ax_amps.set_xlabel(lrfs.xlabel)
+                ax_amps.set_yticks([])
+                #ax_amps.xaxis.set_major_locator(AutoLocator())
+
+                plt.setp(ax_lrfs.get_xticklabels(), visible=False)
+                plt.setp(ax_lrfs.get_yticklabels(), visible=False)
+
+                # Draw the contents
+                lrfs.plot_image(ax_lrfs, colorbar=False)
+                ax_paps.plot(paps, freqs)
+                ax_amps.plot(phases, amps)
+                ax_phse.plot(phases, phse, '.')
+
+                # And show the results in a new window
+                lrfs_fig.show()
+
+            elif event.key == "T":
+                # Start a new instance of DriftAnalysisInteractivePlot for the LRFS
+                self.lrfs = DriftAnalysisInteractivePlot()
+
+                # Make the LRFS and copy the necessary fields across
+                lrfs = self.LRFS(pulse_range=self.ax.get_ylim())
+
+                self.lrfs.stokes      = lrfs.stokes
+                self.lrfs.npulses     = lrfs.npulses
+                self.lrfs.nbins       = lrfs.nbins
+                self.lrfs.first_pulse = lrfs.first_pulse
+                self.lrfs.first_phase = lrfs.first_phase
+                self.lrfs.dpulse      = lrfs.dpulse
+                self.lrfs.dphase_deg  = lrfs.dphase_deg
+                self.lrfs.complex     = lrfs.complex
+                self.lrfs.xlabel      = lrfs.xlabel
+                self.lrfs.ylabel      = lrfs.ylabel
+                self.lrfs.values      = lrfs.values
+
+                # Remove all the subpulses, models, and drift sequence boundaries
+                self.lrfs.subpulses = Subpulses()
+                self.lrfs.model_fits = {}
+                self.lrfs.drift_sequences = DriftSequences()
+
+                # Make it interactive!
+                self.lrfs.start()
+
             elif event.key == "A":
                 # Start a new instance of DriftAnalysisInteractivePlot for the auto correlation
                 self.ac = DriftAnalysisInteractivePlot()
@@ -1340,6 +1551,9 @@ class DriftAnalysisInteractivePlot(DriftAnalysis):
                 self.ac.first_phase = autocorr.first_phase
                 self.ac.dpulse      = autocorr.dpulse
                 self.ac.dphase_deg  = autocorr.dphase_deg
+                self.ac.complex     = autocorr.complex
+                self.ac.xlabel      = autocorr.xlabel
+                self.ac.ylabel      = autocorr.ylabel
                 self.ac.values      = autocorr.values
 
                 # Remove all the subpulses and models
@@ -1368,9 +1582,26 @@ class DriftAnalysisInteractivePlot(DriftAnalysis):
                     pulses     = self.get_pulse_from_bin(pulse_idxs)
                     driftrates = self.model_fits[seq].calc_driftrate(pulses)
                     dr_ax.plot(pulses, driftrates, 'k')
+
+                    #errs = self.model_fits[seq].calc_driftrate_err(pulses)
+                    #dr_ax.fill_between(pulses, driftrates + errs, driftrates - errs, alpha=0.2, color='black')
+
                 dr_ax.set_xlabel("Pulse number")
                 dr_ax.set_ylabel("Drift rate (deg/pulse)")
                 dr_fig.show()
+
+            elif event.key == "3":
+                P3_fig, P3_ax = plt.subplots()
+                for seq in self.model_fits:
+                    pulse_range = self.model_fits[seq].get_pulse_bounds()
+                    pulse_idx_range = self.get_pulse_bin(pulse_range)
+                    pulse_idxs = np.arange(pulse_idx_range[0], pulse_idx_range[1] + 1)
+                    pulses     = self.get_pulse_from_bin(pulse_idxs)
+                    P3s        = np.abs(self.model_fits[seq].calc_P3(pulses))
+                    P3_ax.plot(pulses, P3s, 'k')
+                P3_ax.set_xlabel("Pulse number")
+                P3_ax.set_ylabel("$P_3/P_1$")
+                P3_fig.show()
 
             elif event.key == "&":
                 dr_fig, dr_ax = plt.subplots()
@@ -1459,6 +1690,11 @@ class DriftAnalysisInteractivePlot(DriftAnalysis):
                     self.ax.set_title("Select a drift sequence by clicking on the pulsestack.\nPress enter to confirm, esc to cancel.")
                     self.fig.canvas.draw()
                     self.mode = "display_model_details"
+
+            elif event.key == "n":
+                nburstpulses = self.subpulses.count_unique_pulse_numbers()
+                nnullpulses = self.npulses - nburstpulses
+                print("Nulling fraction = {}/{} = {:.1f}".format(nnullpulses, self.npulses, nnullpulses/self.npulses*100))
 
         ########################################
         # SPECIALISED KEYS FOR DIFFERENT MODES #
