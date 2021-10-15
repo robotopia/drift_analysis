@@ -1,4 +1,4 @@
-__version__ = "0.9.7"
+__version__ = "0.9.9"
 
 import sys
 import copy
@@ -9,6 +9,7 @@ from numpy.polynomial.polynomial import polyfit, polyval
 from mpl_toolkits import mplot3d
 import matplotlib.pyplot as plt
 from matplotlib.ticker import AutoLocator
+from matplotlib.pyplot import cm
 
 from scipy.interpolate import interp1d
 from scipy.ndimage import gaussian_filter1d
@@ -280,11 +281,13 @@ class Subpulses:
 class DriftSequences:
     def __init__(self):
         self.boundaries = []
+        self.modes = [""]
 
     def serialize(self):
         serialized = {}
 
         serialized["boundaries"] = list(self.boundaries)
+        serialized["modes"] = list(self.modes)
 
         return serialized
 
@@ -295,6 +298,11 @@ class DriftSequences:
         else:
             self.boundaries = []
 
+        if "modes" in serialized.keys():
+            self.modes = serialized["modes"]
+        else:
+            self.modes = ["" for i in range(len(self.boundaries) + 1)]
+
     def number_of_sequences(self):
         return len(self.boundaries) + 1
 
@@ -304,12 +312,21 @@ class DriftSequences:
         else:
             return False
 
-    def add_boundary(self, pulse_idx):
+    def add_boundary(self, pulse_idx, npulses):
         if not self.has_boundary(pulse_idx):
-            bisect.insort(self.boundaries, pulse_idx)
+            # Work out where to put the new boundary
+            sequence_idx = self.get_sequence_number(pulse_idx, npulses)
+
+            # Get the mode of the current mode
+            mode = self.modes[sequence_idx]
+            self.modes.insert(sequence_idx, mode)
+
+            # Insert the pulse idx as a new boundary
+            self.boundaries.insert(sequence_idx, pulse_idx)
 
     def delete_boundaries(self, boundary_idxs):
         self.boundaries = [int(v) for i, v in enumerate(self.boundaries) if i not in boundary_idxs]
+        self.modes = [v for i, v in enumerate(self.modes) if i not in boundary_idxs]
 
     def get_bounding_pulse_idxs(self, sequence_idx, npulses):
         '''
@@ -370,6 +387,29 @@ class DriftSequences:
 
         return sequence_number
 
+    def set_sequence_mode(self, sequence_idx, mode):
+        self.modes[sequence_idx] = mode
+
+    def get_number_of_modes(self):
+        # Count the number of unique modes
+        return len(set(self.modes))
+
+    def get_mode_colours(self):
+        # Get the number of unique modes
+        nmodes = self.get_number_of_modes()
+
+        # Make a list of colours accordingly, but make the first color black
+        if nmodes == 1:
+            colour_list = np.array([[0, 0, 0, 1]])
+        else:
+            colour_list = cm.rainbow(np.linspace(0, 1, nmodes - 1))
+            colour_list = np.insert(colour_list, 0, [0, 0, 0, 1], axis=0)
+
+        # Make a dictionary where keys are modes and values are colours
+        colour_dict = {list(set(self.modes))[i]: colour_list[i] for i in range(nmodes)}
+        return colour_dict
+
+
 class ModelFit(pulsestack.Pulsestack):
     def __init__(self):
         self.parameters  = None
@@ -389,7 +429,7 @@ class ModelFit(pulsestack.Pulsestack):
 
     def get_parameter_names(self, display_type=None):
         '''
-        display_type can be 'latex'. None default to ascii-type output
+        display_type can be 'latex'. None defaults to ascii-type output
         '''
         if self.model_name == "quadratic":
             if display_type == "latex":
@@ -398,9 +438,9 @@ class ModelFit(pulsestack.Pulsestack):
                 return ["a1", "a2", "a3", "a4"]
         elif self.model_name == "exponential":
             if display_type == "latex":
-                return ["D_0", "k", "\\varphi_0", "P_2"]
+                return ["D_0", "D_f", "k", "\\varphi_0", "P_2"]
             else:
-                return ["D0", "k", "phi0", "P2"]
+                return ["D0", "Df", "k", "phi0", "P2"]
         else:
             self.print_unecognised_model_error()
 
@@ -416,7 +456,7 @@ class ModelFit(pulsestack.Pulsestack):
         if self.model_name == "quadratic":
             equation_string = "phi = a1*p^2 + a2*p + a3 + a4*d"
         elif self.model_name == "exponential":
-            equation_string = "phi = (D0/k)*(1 - exp(-k*(p - p0)) + phi0 + P2*d)"
+            equation_string = "phi = (D0/k)*(1 - exp(-k*(p - p0)) + Df*(p - p0) + phi0 + P2*d)"
         else:
             return "Unrecognised model '{}'".format(self.model)
 
@@ -459,10 +499,11 @@ class ModelFit(pulsestack.Pulsestack):
             P2   = self.calc_P2()
             phi0 = self.calc_phase(p0, 0)
             D0   = self.calc_driftrate(p0)
-            Df   = self.calc_driftrate(pf)
-            k    = -np.log(Df/D0) / (pf - p0)
+            Dend = self.calc_driftrate(pf) # The drift rate at the end of the sequence
+            Df   = 0                       # The drift rate as p -> oo
+            k    = -np.log(Dend/D0) / (pf - p0)
 
-            self.parameters = [D0, k, phi0, P2]
+            self.parameters = [D0, Df, k, phi0, P2]
             self.model_name = new_model_name
 
         if new_model_name == "quadratic":
@@ -470,13 +511,13 @@ class ModelFit(pulsestack.Pulsestack):
             # sequence the same, and chooses the quadratic model which matches the drift rate at
             # both the beginning and the end of the sequence. It is NOT guaranteed that the phase
             # of the driftbands match at the end of the drift sequence
-            P2 = self.calc_P2()
-            D0 = self.calc_driftrate(p0)
-            Df = self.calc_driftrate(pf)
+            P2   = self.calc_P2()
+            D0   = self.calc_driftrate(p0)
+            Dend = self.calc_driftrate(pf) # The drift rate at the end of the sequence
             phi0 = self.calc_phase(p0, 0)
 
-            a1 = (D0 - Df)/(2*(p0 - pf))
-            a2 = (D0*pf - Df*p0)/(pf - p0)
+            a1 = (D0 - Dend)/(2*(p0 - pf))
+            a2 = (D0*pf - Dend*p0)/(pf - p0)
             a3 = phi0 - a1*p0**2 - a2*p0
             a4 = P2
 
@@ -513,7 +554,7 @@ class ModelFit(pulsestack.Pulsestack):
             if self.model_name == "quadratic":
                 p0 = np.ones((4,))
             elif self.model_name == "exponential":
-                p0 = np.ones((4,))
+                p0 = np.ones((5,))
 
         # Call curve_fit
         popt, pcov = curve_fit(self.calc_phase_for_curvefit, xdata, ydata, p0=p0)
@@ -582,8 +623,8 @@ class ModelFit(pulsestack.Pulsestack):
             return a1*p**2 + a2*p + a3 + a4*d
 
         elif self.model_name == "exponential":
-            D0, k, phi0, P2 = self.parameters
-            return (D0/k)*(1 - np.exp(-k*(p - p0))) + phi0 + P2*d
+            D0, Df, k, phi0, P2 = self.parameters
+            return (D0/k)*(1 - np.exp(-k*(p - p0))) + Df*(p - p0) + phi0 + P2*d
 
         else:
             self.print_unrecognised_model_error()
@@ -612,8 +653,8 @@ class ModelFit(pulsestack.Pulsestack):
             return D
 
         elif self.model_name == "exponential":
-            D0, k, _, _ = self.parameters
-            D = D0*np.exp(-k*(p - p0))
+            D0, Df, k, _, _ = self.parameters
+            D = D0*np.exp(-k*(p - p0)) + Df
             return D
 
         else:
@@ -632,9 +673,9 @@ class ModelFit(pulsestack.Pulsestack):
             J = np.array([[2*p, 1, 0, 0] for p in pulse]) # Make it an explicit 2D array for easier matrix multiplcation later
 
         elif self.model_name == "exponential":
-            D0, k, _, _ = self.parameters
+            D0, Df, k, _, _ = self.parameters
             p0 = self.first_pulse
-            J = np.array([[np.exp(-k*(p - p0)), -(p - p0)*D0*np.exp(-k*(p - p0)), 0, 0] for p in pulse])
+            J = np.array([[np.exp(-k*(p - p0)), 1, -(p - p0)*D0*np.exp(-k*(p - p0)), 0, 0] for p in pulse])
 
         else:
             self.print_unrecognised_model_error()
@@ -658,7 +699,7 @@ class ModelFit(pulsestack.Pulsestack):
             return 2*a1
 
         elif self.model_name == "exponential":
-            D0, k, _, _ = self.parameters
+            D0, _, k, _, _ = self.parameters
             return -k*D0*np.exp(-k*(p - p0))  # also could write -k*self.calc_driftrate(p)
 
         else:
@@ -699,9 +740,9 @@ class ModelFit(pulsestack.Pulsestack):
             return np.round((ph - a1*p**2 - a2*p - a3)/a4)
 
         elif self.model_name == "exponential":
-            D0, k, phi0, P2 = self.parameters
+            D0, Df, k, phi0, P2 = self.parameters
             p0 = self.first_pulse
-            return np.round((ph - (D0/k)*(1 - np.exp(-k*(p - p0))) - phi0)/P2)
+            return np.round((ph - (D0/k)*(1 - np.exp(-k*(p - p0))) - Df*(p - p0) - phi0)/P2)
 
         else:
             self.print_unrecognised_model_error()
@@ -714,7 +755,7 @@ class ModelFit(pulsestack.Pulsestack):
             return a4
 
         elif self.model_name == "exponential":
-            _, _, _, P2 = self.parameters
+            _, _, _, _, P2 = self.parameters
             return P2
 
         else:
@@ -744,9 +785,9 @@ class ModelFit(pulsestack.Pulsestack):
             d0 = np.ceil((ph0 - a1*p0**2 - a2*p0 - a3)/a4)
             df = np.floor((phf - a1*pf**2 - a2*pf - a3)/a4)
         elif self.model_name == "exponential":
-            D0, k, phi0, P2 = self.parameters
+            D0, Df, k, phi0, P2 = self.parameters
             d0 = np.ceil((ph0 - phi0)/P2)
-            df = np.floor((phf - (D0/k)*(1 - np.exp(-k*(pf - p0))) - phi0)/P2)
+            df = np.floor((phf - (D0/k)*(1 - np.exp(-k*(pf - p0))) - Df*(pf - p0) - phi0)/P2)
         else:
             self.print_unrecognised_model_error()
             return
@@ -1076,7 +1117,7 @@ class DriftAnalysisInteractivePlot(DriftAnalysis):
 
                 self.set_default_mode()
 
-        elif self.mode == "zoom_drift_sequence" or self.mode == "switch_to_quadratic_and_solve" or self.mode == "assign_driftbands" or self.mode == "switch_to_exponential_and_solve" or self.mode == "display_model_details" or self.mode == "plot_residuals":
+        elif self.mode == "zoom_drift_sequence" or self.mode == "switch_to_quadratic_and_solve" or self.mode == "assign_driftbands" or self.mode == "switch_to_exponential_and_solve" or self.mode == "display_model_details" or self.mode == "set_drift_mode" or self.mode == "plot_residuals":
             if event.inaxes == self.ax:
                 pulse_idx = self.get_pulse_bin(event.ydata, inrange=False)
                 self.selected = self.drift_sequences.get_sequence_number(pulse_idx, self.npulses)
@@ -1182,6 +1223,7 @@ class DriftAnalysisInteractivePlot(DriftAnalysis):
                 print("*     Plot the (exponential) model parameters as a function of pulse number")
                 print("(     Plot the (quadratic) model parameters as a function of pulse number")
                 print("m     Print model parameters to stdout")
+                print("M     Set the drift mode of a drift sequence")
                 print("+/-   Set upper/lower colorbar range")
                 print("x     Plot the maximum pixels in each pulse")
                 print("n     Print the nulling fraction (i.e. the fraction of pulses without subpulses)")
@@ -1651,9 +1693,13 @@ class DriftAnalysisInteractivePlot(DriftAnalysis):
                 params     = [] # The parameter values
                 param_errs = [] # The errors on the parameter values
 
+                # Set up the colours for the different modes
+                colour_dict = self.drift_sequences.get_mode_colours()
+                colours = []
+
                 for seq in self.model_fits:
 
-                    # Only plot up exponential parameters
+                    # Only plot up parameters for the selected model
                     if self.model_fits[seq].model_name != dummy.model_name:
                         continue
 
@@ -1661,6 +1707,12 @@ class DriftAnalysisInteractivePlot(DriftAnalysis):
                     p_lo, p_hi = self.model_fits[seq].get_pulse_bounds()
                     pmid.append(0.5*(p_hi + p_lo))
                     perr.append(0.5*(p_hi - p_lo))
+
+                    # Get the mode for this model
+                    pulse_idx = self.get_pulse_bin(pmid[-1])
+                    sequence_idx = self.drift_sequences.get_sequence_number(pulse_idx, self.npulses)
+                    mode = self.drift_sequences.modes[sequence_idx]
+                    colours.append(list(colour_dict[mode]))
 
                     # Get the parameter values
                     params.append(self.model_fits[seq].parameters)
@@ -1674,8 +1726,10 @@ class DriftAnalysisInteractivePlot(DriftAnalysis):
                 param_errs = np.array(param_errs)
 
                 # Plot everything up!
+                colours = np.array(colours)
+                print(colours[:,:3])
                 for i in range(nparameters):
-                    param_axs[i].errorbar(pmid, params[:,i], xerr=perr, yerr=param_errs[:,i], fmt='.')
+                    param_axs[i].errorbar(pmid, params[:,i], xerr=perr, yerr=param_errs[:,i], fmt='.', c=colours[:,:3])
                     param_axs[i].set_ylabel("$" + param_names[i] + "$")
                 param_axs[-1].set_xlabel("Pulse number")
 
@@ -1687,9 +1741,14 @@ class DriftAnalysisInteractivePlot(DriftAnalysis):
                 self.mode = "switch_to_exponential_and_solve"
 
             elif event.key == "m":
-                    self.ax.set_title("Select a drift sequence by clicking on the pulsestack.\nPress enter to confirm, esc to cancel.")
-                    self.fig.canvas.draw()
-                    self.mode = "display_model_details"
+                self.ax.set_title("Select a drift sequence by clicking on the pulsestack.\nPress enter to confirm, esc to cancel.")
+                self.fig.canvas.draw()
+                self.mode = "display_model_details"
+
+            elif event.key == "M":
+                self.ax.set_title("Select a drift sequence by clicking on the pulsestack.\nPress enter to confirm, esc to cancel.")
+                self.fig.canvas.draw()
+                self.mode = "set_drift_mode"
 
             elif event.key == "n":
                 nburstpulses = self.subpulses.count_unique_pulse_numbers()
@@ -1886,7 +1945,7 @@ class DriftAnalysisInteractivePlot(DriftAnalysis):
                         self.model_fits[seq+1].plot_all_driftbands(self.ax, phlim, pstep=self.dpulse, color='k')
 
                 # Now actually add the boundary
-                self.drift_sequences.add_boundary(self.selected)
+                self.drift_sequences.add_boundary(self.selected, self.npulses)
 
                 xlim = self.ax.get_xlim()
                 ylim = self.ax.get_ylim()
@@ -2160,6 +2219,31 @@ class DriftAnalysisInteractivePlot(DriftAnalysis):
             elif event.key == "escape":
                 self.deselect()
                 self.set_default_mode()
+
+        elif self.mode == "set_drift_mode":
+            if event.key == "enter":
+                if self.selected is None:
+                    return
+
+                # Prompt the user for a drift mode name
+                root = tkinter.Tk()
+                root.withdraw()
+                new_mode = tkinter.simpledialog.askstring("Drift mode", "Set the drift mode for this sequence", parent=root)
+                if not new_mode:
+                    self.deselect()
+                    self.fig.canvas.draw()
+                    return
+
+                # Here, "selected" refers to the drift sequence number
+                self.drift_sequences.set_sequence_mode(self.selected, new_mode)
+
+                self.deselect()
+                self.set_default_mode()
+
+            elif event.key == "escape":
+                self.deselect()
+                self.set_default_mode()
+
 
     def closest_drift_mode_boundary(self, y):
         dm_boundary_display = self.ax.transData.transform([[0,y] for y in self.get_pulse_from_bin(self.drift_sequences.get_pulse_mid_idxs())])
