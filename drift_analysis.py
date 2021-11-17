@@ -1727,8 +1727,7 @@ class DriftAnalysisInteractivePlot(DriftAnalysis):
 
                 # Plot everything up!
                 colours = np.array(colours)
-                colours = ["black", "red", "blue", "green", "red"]
-                print(colours)
+                colours = ["black", "red", "blue", "green", "magenta"]
                 for i in range(nparameters):
                     param_axs[i].errorbar(pmid, params[:,i], xerr=perr, yerr=param_errs[:,i], fmt='.', c=colours[i])
                     param_axs[i].set_ylabel("$" + param_names[i] + "$")
@@ -2214,6 +2213,9 @@ class DriftAnalysisInteractivePlot(DriftAnalysis):
 
             if event.key == "enter":
                 print(self.model_fits[self.selected])
+                np.set_printoptions(linewidth=np.inf)
+                print("Covariance matrix:")
+                print(self.model_fits[self.selected].pcov)
                 self.deselect()
                 self.set_default_mode()
 
