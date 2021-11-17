@@ -1730,7 +1730,7 @@ class DriftAnalysisInteractivePlot(DriftAnalysis):
                 colours = ["black", "red", "blue", "green", "red"]
                 print(colours)
                 for i in range(nparameters):
-                    param_axs[i].errorbar(pmid, params[:,i], xerr=perr, yerr=param_errs[:,i], fmt='.', c=colours)
+                    param_axs[i].errorbar(pmid, params[:,i], xerr=perr, yerr=param_errs[:,i], fmt='.', c=colours[i])
                     param_axs[i].set_ylabel("$" + param_names[i] + "$")
                 param_axs[-1].set_xlabel("Pulse number")
 
