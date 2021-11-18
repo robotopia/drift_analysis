@@ -1397,6 +1397,11 @@ class DriftAnalysisInteractivePlot(DriftAnalysis):
                 profile = np.mean(cropped.values, axis=0)
                 phases = np.arange(cropped.nbins)*cropped.dphase_deg + cropped.first_phase
 
+                # Print it out to a file
+                if self.jsonfile is not None:
+                    np.savetxt(self.jsonfile + ".profile", np.transpose([phases, profile]))
+
+                # Make a plot
                 profile_fig, profile_ax = plt.subplots()
                 profile_ax.plot(phases, profile)
                 profile_ax.set_xlabel("Pulse phase (deg)")
