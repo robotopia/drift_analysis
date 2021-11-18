@@ -427,7 +427,7 @@ class ModelFit(pulsestack.Pulsestack):
     def get_nparameters(self):
         return len(self.get_parameter_names())
 
-    def get_parameter_names(self, display_type=None):
+    def get_parameter_names(self, display_type=None, with_units=False):
         '''
         display_type can be 'latex'. None defaults to ascii-type output
         '''
@@ -438,9 +438,15 @@ class ModelFit(pulsestack.Pulsestack):
                 return ["a1", "a2", "a3", "a4"]
         elif self.model_name == "exponential":
             if display_type == "latex":
-                return ["D_0", "D_f", "k", "\\varphi_0", "P_2"]
+                if with_units:
+                    return ["D_0\\,(^\\circ/P)", "D_f\\,(^\\circ/P)", "k\\,(1/P)", "\\varphi_0\\,(^\\circ)", "P_2\\,(^\\circ)"]
+                else:
+                    return ["D_0", "D_f", "k", "\\varphi_0", "P_2"]
             else:
-                return ["D0", "Df", "k", "phi0", "P2"]
+                if with_units:
+                    return ["D0 (deg/P)", "Df (deg/P)", "k (1/P)", "phi0 (deg)", "P2 (deg)"]
+                else:
+                    return ["D0", "Df", "k", "phi0", "P2"]
         else:
             self.print_unecognised_model_error()
 
@@ -726,7 +732,7 @@ class ModelFit(pulsestack.Pulsestack):
         if self.model_name == "quadratic":
             self.parameters[2] += phase_shift
         elif self.model_name == "exponential":
-            self.parameters[2] += phase_shift
+            self.parameters[3] += phase_shift
         else:
             self.print_unrecognised_model_error()
             return
@@ -953,7 +959,7 @@ class DriftAnalysis(pulsestack.Pulsestack):
             else:
                 phlim = self.onpulse
 
-            self.model_fits[i].plot_all_driftbands(self.ax, phlim, pstep=self.dpulse, color='k')
+            self.model_fits[i].plot_all_driftbands(self.ax, phlim, pstep=self.dpulse, color='w')
 
     def unplot_all_model_fits(self):
         for i in self.model_fits:
@@ -1319,7 +1325,7 @@ class DriftAnalysisInteractivePlot(DriftAnalysis):
                 _, vmax = self.ps_image.get_clim()
                 root = tkinter.Tk()
                 root.withdraw()
-                vmin = tkinter.simpledialog.askfloat("Set upper dynamic range", "Input value for upper dynamic range", parent=root)
+                vmin = tkinter.simpledialog.askfloat("Set lower dynamic range", "Input value for lower dynamic range", parent=root)
                 self.ps_image.set_clim(vmin, vmax)
                 self.fig.canvas.draw()
 
@@ -1629,7 +1635,7 @@ class DriftAnalysisInteractivePlot(DriftAnalysis):
                     #dr_ax.fill_between(pulses, driftrates + errs, driftrates - errs, alpha=0.2, color='black')
 
                 dr_ax.set_xlabel("Pulse number")
-                dr_ax.set_ylabel("Drift rate (deg/pulse)")
+                dr_ax.set_ylabel("Drift rate ($^\\circ/P$)")
                 dr_fig.show()
 
             elif event.key == "3":
@@ -1642,7 +1648,7 @@ class DriftAnalysisInteractivePlot(DriftAnalysis):
                     P3s        = np.abs(self.model_fits[seq].calc_P3(pulses))
                     P3_ax.plot(pulses, P3s, 'k')
                 P3_ax.set_xlabel("Pulse number")
-                P3_ax.set_ylabel("$P_3/P_1$")
+                P3_ax.set_ylabel("$P_3\\,(P)$")
                 P3_fig.show()
 
             elif event.key == "&":
@@ -1684,7 +1690,7 @@ class DriftAnalysisInteractivePlot(DriftAnalysis):
                 elif event.key == "(":
                     dummy.model_name = "quadratic"
                 nparameters = dummy.get_nparameters()
-                param_names = dummy.get_parameter_names(display_type='latex')
+                param_names = dummy.get_parameter_names(display_type='latex', with_units=True)
 
                 param_fig, param_axs = plt.subplots(nrows=nparameters, ncols=1, sharex=True)
 
@@ -1727,9 +1733,9 @@ class DriftAnalysisInteractivePlot(DriftAnalysis):
 
                 # Plot everything up!
                 colours = np.array(colours)
-                colours = ["black", "red", "blue", "green", "magenta"]
+                colours = ["black", "red", "blue", "green"]
                 for i in range(nparameters):
-                    param_axs[i].errorbar(pmid, params[:,i], xerr=perr, yerr=param_errs[:,i], fmt='.', c=colours[i])
+                    param_axs[i].errorbar(pmid, params[:,i], xerr=perr, yerr=param_errs[:,i], fmt='.', c=colours[i%len(colours)])
                     param_axs[i].set_ylabel("$" + param_names[i] + "$")
                 param_axs[-1].set_xlabel("Pulse number")
 
