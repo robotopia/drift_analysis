@@ -1547,6 +1547,7 @@ class DriftAnalysisInteractivePlot(DriftAnalysis):
 
                 plt.setp(ax_phse.get_xticklabels(), visible=False)
                 ax_phse.set_yticks([-90,0,90])
+                ax_phse.set_ylabel("Drift phase\n(deg)", rotation=0, labelpad=20)
 
                 ax_amps.set_xlabel(lrfs.xlabel)
                 ax_amps.set_yticks([])
