@@ -18,6 +18,8 @@ class Pulsestack:
         self.complex     = None
         self.xlabel      = "Pulse phase (deg)"
         self.ylabel      = "Pulse number"
+        self.vmin        = None
+        self.vmax        = None
 
     def serialize(self):
         serialized = {}
@@ -64,6 +66,12 @@ class Pulsestack:
                 serialized["values"] = list(flattened)
             elif self.complex == "complex":
                 serialized["values"] = {"real": list(np.real(flattened)), "imag": list(np.imag(flattened))}
+
+        if self.vmin is not None:
+            serialized["vmin"] = self.vmin
+
+        if self.vmax is not None:
+            serialized["vmax"] = self.vmax
 
         return serialized
 
@@ -138,6 +146,12 @@ class Pulsestack:
                 self.values = np.reshape(re + 1j*im, (self.npulses, self.nbins))
         else:
             self.values = None
+
+        if "vmin" in data.keys():
+            self.vmin = data["vmin"]
+
+        if "vmax" in data.keys():
+            self.vmax = data["vmax"]
 
     def load_from_pdv(self, filename, stokes):
         # Read in the pdv data using numpy's handy loadtxt
@@ -402,9 +416,9 @@ class Pulsestack:
         # Plots the pulsestack as an image
         extent = self.calc_image_extent()
         if self.complex == "real":
-            self.ps_image = ax.imshow(self.values, aspect='auto', origin='lower', interpolation='none', extent=extent, cmap='hot', **kwargs)
+            self.ps_image = ax.imshow(self.values, aspect='auto', origin='lower', interpolation='none', extent=extent, cmap='hot', vmin=self.vmin, vmax=self.vmax, **kwargs)
         else:
-            self.ps_image = ax.imshow(np.abs(self.values), aspect='auto', origin='lower', interpolation='none', extent=extent, cmap='hot', **kwargs)
+            self.ps_image = ax.imshow(np.abs(self.values), aspect='auto', origin='lower', interpolation='none', extent=extent, cmap='hot', vmin=self.vmin, vmax=self.vmax, **kwargs)
         if colorbar:
             self.cbar = plt.colorbar(mappable=self.ps_image, ax=ax)
         ax.set_xlabel("Pulse phase (deg)" if self.xlabel is None else self.xlabel)

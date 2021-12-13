@@ -1,4 +1,4 @@
-__version__ = "0.9.9"
+__version__ = "0.9.10"
 
 import sys
 import copy
@@ -853,6 +853,7 @@ class DriftAnalysis(pulsestack.Pulsestack):
         self.onpulse                   = None
         self.model_fits            = {}  # Keys = drift sequence numbers
         self.quadratic_visible         = True
+        self.clim                      = [None, None]
 
     def get_local_maxima(self, maxima_threshold=None):
         if maxima_threshold is None:
@@ -1314,20 +1315,26 @@ class DriftAnalysisInteractivePlot(DriftAnalysis):
                             np.savetxt(outfile, outdata, header=header)
 
             elif event.key == "+":
-                vmin, _ = self.ps_image.get_clim()
                 root = tkinter.Tk()
                 root.withdraw()
-                vmax = tkinter.simpledialog.askfloat("Set upper dynamic range", "Input value for upper dynamic range", parent=root)
-                self.ps_image.set_clim(vmin, vmax)
+                self.vmax = tkinter.simpledialog.askfloat("Set upper dynamic range", "Input value for upper dynamic range", parent=root)
+                self.ps_image.set_clim(self.vmin, self.vmax)
                 self.fig.canvas.draw()
 
+                # Add the * to the window title
+                if self.jsonfile is not None:
+                    self.fig.canvas.manager.set_window_title(self.jsonfile + "*")
+
             elif event.key == "-":
-                _, vmax = self.ps_image.get_clim()
                 root = tkinter.Tk()
                 root.withdraw()
-                vmin = tkinter.simpledialog.askfloat("Set lower dynamic range", "Input value for lower dynamic range", parent=root)
-                self.ps_image.set_clim(vmin, vmax)
+                self.vmin = tkinter.simpledialog.askfloat("Set lower dynamic range", "Input value for lower dynamic range", parent=root)
+                self.ps_image.set_clim(self.vmin, self.vmax)
                 self.fig.canvas.draw()
+
+                # Add the * to the window title
+                if self.jsonfile is not None:
+                    self.fig.canvas.manager.set_window_title(self.jsonfile + "*")
 
             elif event.key == "^":
                 self.ax.set_title("Set threshold on colorbar. Press enter when done, esc to cancel.")
