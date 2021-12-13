@@ -1124,14 +1124,14 @@ class DriftAnalysisInteractivePlot(DriftAnalysis):
 
                 self.set_default_mode()
 
-        elif self.mode == "zoom_drift_sequence" or self.mode == "switch_to_quadratic_and_solve" or self.mode == "assign_driftbands" or self.mode == "switch_to_exponential_and_solve" or self.mode == "display_model_details" or self.mode == "set_drift_mode" or self.mode == "plot_residuals":
+        elif self.mode == "zoom_drift_sequence" or self.mode == "switch_to_quadratic_and_solve" or self.mode == "assign_driftbands" or self.mode == "switch_to_exponential_and_solve" or self.mode == "display_model_details" or self.mode == "set_drift_mode" or self.mode == "plot_residuals" or self.mode == "clear_sequence_model":
             if event.inaxes == self.ax:
                 pulse_idx = self.get_pulse_bin(event.ydata, inrange=False)
                 self.selected = self.drift_sequences.get_sequence_number(pulse_idx, self.npulses)
                 if self.selected is not None:
 
                     # In some modes, the user only can select sequences with existing models
-                    if self.mode == "switch_to_quadratic_and_solve" or self.mode == "switch_to_exponential_and_solve" or self.mode == "assign_driftbands" or self.mode == "display_model_details" or self.mode == "plot_residuals":
+                    if self.mode == "switch_to_quadratic_and_solve" or self.mode == "switch_to_exponential_and_solve" or self.mode == "assign_driftbands" or self.mode == "display_model_details" or self.mode == "plot_residuals" or self.mode == "clear_sequence_model":
                         if self.selected not in self.model_fits.keys():
                             return
 
@@ -1234,6 +1234,7 @@ class DriftAnalysisInteractivePlot(DriftAnalysis):
                 print("+/-   Set upper/lower colorbar range")
                 print("x     Plot the maximum pixels in each pulse")
                 print("n     Print the nulling fraction (i.e. the fraction of pulses without subpulses)")
+                print("X     Remove a sequence's drifting model and subpulse driftband associations")
 
             elif event.key == "j":
                 self.save_json()
@@ -1450,6 +1451,11 @@ class DriftAnalysisInteractivePlot(DriftAnalysis):
                 self.ax.set_title("Select a drift sequence by clicking on the pulsestack.\nPress enter to confirm, esc to cancel.")
                 self.fig.canvas.draw()
                 self.mode = "switch_to_quadratic_and_solve"
+
+            elif event.key == "X":
+                self.ax.set_title("Select a drift sequence by clicking on the pulsestack.\nPress enter to confirm, esc to cancel.")
+                self.fig.canvas.draw()
+                self.mode = "clear_sequence_model"
 
             elif event.key == "h":
                 # If some other function has explicitly changed the axis limits,
@@ -1902,6 +1908,36 @@ class DriftAnalysisInteractivePlot(DriftAnalysis):
                     if self.jsonfile is not None:
                         self.fig.canvas.manager.set_window_title(self.jsonfile + "*")
                     self.fig.canvas.draw()
+
+            elif event.key == "escape":
+                self.deselect()
+                self.set_default_mode()
+
+        elif self.mode == "clear_sequence_model":
+            if event.key == "enter":
+                if self.selected is not None:
+                    seq = self.selected
+                    if seq in self.model_fits.keys():
+                        # Set all the subpulses in this sequence to have driftband = None
+                        pulse_range = np.array(self.model_fits[seq].get_pulse_bounds())
+                        subset = self.subpulses.in_pulse_range(pulse_range)
+                        self.subpulses.set_driftbands(None, subset=subset)
+
+                        # Delete the model fit itself
+                        self.model_fits[seq].clear_all_plots()
+                        self.model_fits.pop(seq)
+
+                        # Replot subpulses to reflect change in status
+                        self.subpulses.plot_subpulses(self.ax)
+
+                        # Redraw the figure
+                        if self.jsonfile is not None:
+                            self.fig.canvas.manager.set_window_title(self.jsonfile + "*")
+                        self.fig.canvas.draw()
+
+                        # Return to normal mode
+                        self.deselect()
+                        self.set_default_mode()
 
             elif event.key == "escape":
                 self.deselect()
