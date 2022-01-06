@@ -350,6 +350,12 @@ class DriftSequences:
 
         return [first_idx, last_idx]
 
+    def get_all_first_pulses(self):
+        return [0] + [i+1 for i in self.boundaries]
+
+    def get_all_last_pulses(self, npulses):
+        return self.boundaries + [npulses-1]
+
     def is_pulse_in_sequence(self, sequence_idx, pulse_idx, npulses):
         first_idx, last_idx = self.get_bounding_pulse_idxs(sequence_idx, npulses)
 
@@ -953,6 +959,10 @@ class DriftAnalysis(pulsestack.Pulsestack):
         else:
             self.dm_boundary_plt = self.ax.hlines(ys, xlo, xhi, colors=["k"], linestyles='dashed')
 
+        for i in range(self.drift_sequences.number_of_sequences()):
+            _, last_pulse_in_sequence = self.drift_sequences.get_bounding_pulse_idxs(i, self.npulses)
+            self.ax.text(self.first_phase, last_pulse_in_sequence, self.drift_sequences.modes[i], va='top')
+
     def plot_all_model_fits(self):
         for i in self.model_fits:
             if self.onpulse is None:
@@ -1235,6 +1245,7 @@ class DriftAnalysisInteractivePlot(DriftAnalysis):
                 print("x     Plot the maximum pixels in each pulse")
                 print("n     Print the nulling fraction (i.e. the fraction of pulses without subpulses)")
                 print("X     Remove a sequence's drifting model and subpulse driftband associations")
+                print("c     Print out all subpulses")
 
             elif event.key == "j":
                 self.save_json()
@@ -1780,6 +1791,26 @@ class DriftAnalysisInteractivePlot(DriftAnalysis):
                 nnullpulses = self.npulses - nburstpulses
                 print("Nulling fraction = {}/{} = {:.1f}".format(nnullpulses, self.npulses, nnullpulses/self.npulses*100))
 
+            elif event.key == "c":
+                # Get a filename to save to
+                root = tkinter.Tk()
+                root.withdraw()
+                subpulsefile = tkinter.filedialog.asksaveasfilename(filetypes=(("All files", "*.*"),))
+
+                # Collect all the info to print out
+                phases = self.subpulses.get_phases()
+                pulses = self.subpulses.get_pulses()
+                sequence_idxs = [self.drift_sequences.get_sequence_number(pulse_idx, self.npulses) for pulse_idx in pulses]
+                modes = [self.drift_sequences.modes[i] if self.drift_sequences.modes[i] != "" else "None" for i in sequence_idxs]
+                first_pulses = [self.drift_sequences.get_all_first_pulses()[i] for i in sequence_idxs]
+                relative_pulses = [pulses[i] - first_pulses[i] for i in range(len(phases))]
+
+                with open(subpulsefile, 'w') as f:
+                    f.write("# Subpulses of {}\n".format(self.jsonfile))
+                    f.write("# Mode | Sequence number | Phase | Pulse number in sequence | Pulse number\n")
+                    for i in range(len(phases)):
+                        f.write("{} {} {} {} {}\n".format(modes[i], sequence_idxs[i], phases[i], int(relative_pulses[i]), int(pulses[i])))
+
         ########################################
         # SPECIALISED KEYS FOR DIFFERENT MODES #
         ########################################
@@ -2294,6 +2325,7 @@ class DriftAnalysisInteractivePlot(DriftAnalysis):
 
                 # Here, "selected" refers to the drift sequence number
                 self.drift_sequences.set_sequence_mode(self.selected, new_mode)
+                self.plot_drift_mode_boundaries()
 
                 self.deselect()
                 self.set_default_mode()
