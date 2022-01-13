@@ -1803,13 +1803,16 @@ class DriftAnalysisInteractivePlot(DriftAnalysis):
                 sequence_idxs = [self.drift_sequences.get_sequence_number(pulse_idx, self.npulses) for pulse_idx in pulses]
                 modes = [self.drift_sequences.modes[i] if self.drift_sequences.modes[i] != "" else "None" for i in sequence_idxs]
                 first_pulses = [self.drift_sequences.get_all_first_pulses()[i] for i in sequence_idxs]
+                last_pulses = [self.drift_sequences.get_all_last_pulses(self.npulses)[i] for i in sequence_idxs]
                 relative_pulses = [pulses[i] - first_pulses[i] for i in range(len(phases))]
+                relative_last_pulses = [pulses[i] - last_pulses[i] for i in range(len(phases))]
+                drift_rates = [self.model_fits[sequence_idxs[i]].calc_driftrate(pulses[i]) if sequence_idxs[i] in self.model_fits.keys() else 'None' for i in range(len(pulses))]
 
                 with open(subpulsefile, 'w') as f:
                     f.write("# Subpulses of {}\n".format(self.jsonfile))
-                    f.write("# Mode | Sequence number | Phase | Pulse number in sequence | Pulse number\n")
+                    f.write("# Mode | Sequence number | Phase (deg) | Pulse number in sequence | Pulse number | Pulse number from end of sequence | Drift rate (deg/pulse)\n")
                     for i in range(len(phases)):
-                        f.write("{} {} {} {} {}\n".format(modes[i], sequence_idxs[i], phases[i], int(relative_pulses[i]), int(pulses[i])))
+                        f.write("{} {} {} {} {} {} {}\n".format(modes[i], sequence_idxs[i], phases[i], int(relative_pulses[i]), int(pulses[i]), int(relative_last_pulses[i]), drift_rates[i]))
 
         ########################################
         # SPECIALISED KEYS FOR DIFFERENT MODES #
