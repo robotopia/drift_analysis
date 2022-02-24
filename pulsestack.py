@@ -412,6 +412,17 @@ class Pulsestack:
 
         return tdfs
 
+    def calc_mean_energies(self, only_onpulse=True):
+        if only_onpulse == True:
+            bin_lo, bin_hi = self.get_phase_bin(self.onpulse)
+            bin_lo = int(np.floor(bin_lo))
+            bin_hi = int(np.ceil(bin_hi))
+            subpulsestack = self.values[:,bin_lo:bin_hi]
+        else:
+            subpulsestack = self.values
+
+        return np.mean(subpulsestack, axis=1)
+
     def plot_image(self, ax, colorbar=True, **kwargs):
         # Plots the pulsestack as an image
         extent = self.calc_image_extent()

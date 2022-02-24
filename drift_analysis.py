@@ -1244,6 +1244,7 @@ class DriftAnalysisInteractivePlot(DriftAnalysis):
                 print("+/-   Set upper/lower colorbar range")
                 print("x     Plot the maximum pixels in each pulse")
                 print("n     Print the nulling fraction (i.e. the fraction of pulses without subpulses)")
+                print("N     Plot nulling histogram")
                 print("X     Remove a sequence's drifting model and subpulse driftband associations")
                 print("c     Print out all subpulses")
 
@@ -1795,6 +1796,24 @@ class DriftAnalysisInteractivePlot(DriftAnalysis):
                 nburstpulses = self.subpulses.count_unique_pulse_numbers()
                 nnullpulses = self.npulses - nburstpulses
                 print("Nulling fraction = {}/{} = {:.1f}".format(nnullpulses, self.npulses, nnullpulses/self.npulses*100))
+
+            elif event.key == "N":
+                # Calculate mean energies
+                energies = self.calc_mean_energies()
+
+                # Calculate the default parameters (50 bins, equally spaced)
+                '''
+                root = tkinter.Tk()
+                root.withdraw()
+                dE = tkinter.simpledialog.askstring("Histogram parameters", "Input bin width", parent=root)
+                '''
+
+                # Make a histogram plot
+                nullhist_fig, nullhist_ax = plt.subplots()
+                nullhist_ax.hist(energies, bins=50)
+                nullhist_ax.set_xlabel("Pulse mean energy (a.u.)")
+                nullhist_ax.set_ylabel("Frequency")
+                nullhist_fig.show()
 
             elif event.key == "c":
                 # Get a filename to save to
