@@ -412,16 +412,25 @@ class Pulsestack:
 
         return tdfs
 
-    def calc_mean_energies(self, only_onpulse=True):
-        if only_onpulse == True:
+    def calc_mean_energies(self, on_and_off_pulse=True):
+        if on_and_off_pulse == True:
             bin_lo, bin_hi = self.get_phase_bin(self.onpulse)
             bin_lo = int(np.floor(bin_lo))
             bin_hi = int(np.ceil(bin_hi))
-            subpulsestack = self.values[:,bin_lo:bin_hi]
-        else:
-            subpulsestack = self.values
 
-        return np.mean(subpulsestack, axis=1)
+            onpulse  = self.values[:,bin_lo:bin_hi]
+            offpulse = np.hstack((self.values[:,:bin_lo], self.values[:,bin_hi:]))
+            if offpulse.shape[1] > bin_hi - bin_lo:
+                offpulse = offpulse[:,:bin_hi-bin_lo]
+            else:
+                print("warning: offpulse region has fewer bins than onpulse region")
+
+            onpulse_energies = np.mean(onpulse, axis=1)
+            offpulse_energies = np.mean(offpulse, axis=1)
+
+            return onpulse_energies, offpulse_energies
+        else:
+            return np.mean(self.values, axis=1)
 
     def plot_image(self, ax, colorbar=True, **kwargs):
         # Plots the pulsestack as an image

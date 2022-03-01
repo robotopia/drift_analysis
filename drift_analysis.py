@@ -1451,6 +1451,12 @@ class DriftAnalysisInteractivePlot(DriftAnalysis):
                 maxes_ax.set_title("Maximum pixels in each pulse")
                 maxes_fig.show()
 
+                maxhist_fig, maxhist_ax = plt.subplots()
+                maxhist_ax.hist(maxes, bins=50)
+                maxhist_ax.set_xlabel("Peak energy (a.u.)")
+                maxhist_ax.set_ylabel("Frequency")
+                maxhist_fig.show()
+
                 if self.jsonfile is not None:
                     np.savetxt(self.jsonfile + ".maxima", np.transpose([pulses, maxes]))
 
@@ -1798,8 +1804,13 @@ class DriftAnalysisInteractivePlot(DriftAnalysis):
                 print("Nulling fraction = {}/{} = {:.1f}".format(nnullpulses, self.npulses, nnullpulses/self.npulses*100))
 
             elif event.key == "N":
+                if self.show_smooth == True:
+                    cropped = self.visible_ps.crop(pulse_range=self.ax.get_ylim(), phase_deg_range=self.ax.get_xlim(), inplace=False)
+                else:
+                    cropped = self.crop(pulse_range=self.ax.get_ylim(), phase_deg_range=self.ax.get_xlim(), inplace=False)
+
                 # Calculate mean energies
-                energies = self.calc_mean_energies()
+                onpulse_energies, offpulse_energies = cropped.calc_mean_energies(on_and_off_pulse=True)
 
                 # Calculate the default parameters (50 bins, equally spaced)
                 '''
@@ -1809,10 +1820,13 @@ class DriftAnalysisInteractivePlot(DriftAnalysis):
                 '''
 
                 # Make a histogram plot
+                hist, bin_edges = np.histogram(onpulse_energies, bins=50)
                 nullhist_fig, nullhist_ax = plt.subplots()
-                nullhist_ax.hist(energies, bins=50)
+                nullhist_ax.hist(onpulse_energies, bins=bin_edges, histtype='step', label="On-pulse")
+                nullhist_ax.hist(offpulse_energies, bins=bin_edges, histtype='step', label="Off-pulse")
                 nullhist_ax.set_xlabel("Pulse mean energy (a.u.)")
                 nullhist_ax.set_ylabel("Frequency")
+                nullhist_ax.legend()
                 nullhist_fig.show()
 
             elif event.key == "c":
