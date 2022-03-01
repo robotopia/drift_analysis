@@ -1827,6 +1827,7 @@ class DriftAnalysisInteractivePlot(DriftAnalysis):
                 nullhist_ax.set_xlabel("Pulse mean energy (a.u.)")
                 nullhist_ax.set_ylabel("Frequency")
                 nullhist_ax.legend()
+                nullhist_ax.set_title(self.jsonfile[:10])
                 nullhist_fig.show()
 
             elif event.key == "c":
