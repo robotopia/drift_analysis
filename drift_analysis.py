@@ -1219,6 +1219,7 @@ class DriftAnalysisInteractivePlot(DriftAnalysis):
                 print(".     Add a subpulse")
                 print(">     Delete a subpulse")
                 print("P     Plot the profile of the current view")
+                print("[     Plot the profile for a specified mode")
                 print("t     Make static LRFS of the current view")
                 print("T     Make interactive \"pulsestack\" of the LRFS of the current view")
                 print("/     Add a drift mode boundary")
@@ -1433,6 +1434,50 @@ class DriftAnalysisInteractivePlot(DriftAnalysis):
 
                 if len(profilefile) > 0:
                     np.savetxt(profilefile, np.transpose([phases, profile]), header="{} | Flux density".format(self.xlabel) )
+
+            elif event.key == "[":
+
+                # Prompt the user for a drift mode name
+                root = tkinter.Tk()
+                root.withdraw()
+                selected_mode = tkinter.simpledialog.askstring("Plot drift mode profile", "Select a drift mode", parent=root)
+                if not selected_mode:
+                    self.deselect()
+                    self.fig.canvas.draw()
+                    return
+
+                # Initialise the output profile to zeros
+                phases = np.arange(self.nbins)*self.dphase_deg + self.first_phase
+                profile = np.zeros(self.nbins)
+                pulse_count = 0
+
+                # Iterate through the sequences and accumulate profiles
+                for sequence_idx in range(self.drift_sequences.number_of_sequences()):
+                    if self.drift_sequences.modes[sequence_idx] == selected_mode:
+                        first_idx, last_idx = self.drift_sequences.get_bounding_pulse_idxs(sequence_idx, self.npulses)
+                        cropped = self.crop(pulse_range=[first_idx, last_idx], inplace=False)
+                        profile += np.sum(cropped.values, axis=0)
+                        pulse_count += last_idx - first_idx + 1
+
+                # Make a plot
+                profile_fig, profile_ax = plt.subplots()
+                profile_ax.plot(phases, profile)
+                profile_ax.set_xlabel(self.xlabel)
+                profile_ax.set_ylabel("Flux density (a.u.)")
+                profile_ax.set_title("Profile of mode {}".format(selected_mode))
+                profile_fig.show()
+
+                # Print it out to a file
+                # Get a filename to save to
+                root = tkinter.Tk()
+                root.withdraw()
+                profilefile = tkinter.filedialog.asksaveasfilename(filetypes=(("All files", "*.*"),))
+
+                if len(profilefile) > 0:
+                    header = "Profile of mode {}\n".format(selected_mode)
+                    header += "Total number of pulses = {}".format(pulse_count)
+                    header += "{} | Summed flux density | Mean flux density".format(self.xlabel)
+                    np.savetxt(profilefile, np.transpose([phases, profile, profile/pulse_count]), header=header )
 
             elif event.key == "x":
                 if self.show_smooth == True:
@@ -2368,6 +2413,10 @@ class DriftAnalysisInteractivePlot(DriftAnalysis):
                 # Here, "selected" refers to the drift sequence number
                 self.drift_sequences.set_sequence_mode(self.selected, new_mode)
                 self.plot_drift_mode_boundaries()
+
+                if self.jsonfile is not None:
+                    self.fig.canvas.manager.set_window_title(self.jsonfile + "*")
+                self.fig.canvas.draw()
 
                 self.deselect()
                 self.set_default_mode()
