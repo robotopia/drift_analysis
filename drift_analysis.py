@@ -1870,7 +1870,7 @@ class DriftAnalysisInteractivePlot(DriftAnalysis):
                 nullhist_ax.hist(onpulse_energies, bins=bin_edges, histtype='step', label="On-pulse")
                 nullhist_ax.hist(offpulse_energies, bins=bin_edges, histtype='step', label="Off-pulse")
                 nullhist_ax.set_xlabel("Pulse mean energy (a.u.)")
-                nullhist_ax.set_ylabel("Frequency")
+                nullhist_ax.set_ylabel("Number of pulses")
                 nullhist_ax.legend()
                 nullhist_ax.set_title(self.jsonfile[:10])
                 nullhist_fig.show()
