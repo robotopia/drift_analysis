@@ -623,6 +623,43 @@ class ModelFit(pulsestack.Pulsestack):
             self.first_pulse = None
             self.last_pulse  = None
 
+    def calc_jacobian(self, pulse, driftband):
+        p  = pulse
+        d  = driftband
+        p0 = self.first_pulse
+
+        if self.model_name == "quadratic":
+            # See McSweeney et al. (2017)
+            a1, a2, a3, a4 = self.parameters
+            dph_da1 = p**2
+            dph_da2 = p
+            dph_da3 = 1
+            dph_da4 = d
+            J = np.array([dph_da1, dph_da2, dph_da3, dph_da4])
+            return J
+
+        elif self.model_name == "exponential":
+            D0, Df, k, phi0, P2 = self.parameters
+            E = 1 - np.exp(-k*(p - p0))
+            dph_dD0 = E/k
+            dph_dDf = p - p0
+            dph_dk = -D0*E/k**2 + D0*(1 - E)*(p - p0)/k
+            dph_dphi0 = 1
+            dph_dP2 = d
+            J = np.array([dph_dD0, dph_dDf, dph_dk, dph_dphi0, dph_dP2])
+            return J
+
+        else:
+            self.print_unrecognised_model_error()
+            return
+
+    def calc_phase_err(self, pulse, driftband):
+        p  = pulse
+        d  = driftband
+
+        J = self.calc_jacobian(p, d)
+        ph_err = np.sqrt(J @ self.pcov @ J.T)
+        return ph_err
 
     def calc_phase(self, pulse, driftband):
         p  = pulse
@@ -632,11 +669,13 @@ class ModelFit(pulsestack.Pulsestack):
         if self.model_name == "quadratic":
             # See McSweeney et al. (2017)
             a1, a2, a3, a4 = self.parameters
-            return a1*p**2 + a2*p + a3 + a4*d
+            ph = a1*p**2 + a2*p + a3 + a4*d
+            return ph
 
         elif self.model_name == "exponential":
             D0, Df, k, phi0, P2 = self.parameters
-            return (D0/k)*(1 - np.exp(-k*(p - p0))) + Df*(p - p0) + phi0 + P2*d
+            ph = (D0/k)*(1 - np.exp(-k*(p - p0))) + Df*(p - p0) + phi0 + P2*d
+            return ph
 
         else:
             self.print_unrecognised_model_error()
@@ -1134,14 +1173,14 @@ class DriftAnalysisInteractivePlot(DriftAnalysis):
 
                 self.set_default_mode()
 
-        elif self.mode == "zoom_drift_sequence" or self.mode == "switch_to_quadratic_and_solve" or self.mode == "assign_driftbands" or self.mode == "switch_to_exponential_and_solve" or self.mode == "display_model_details" or self.mode == "set_drift_mode" or self.mode == "plot_residuals" or self.mode == "clear_sequence_model":
+        elif self.mode == "zoom_drift_sequence" or self.mode == "switch_to_quadratic_and_solve" or self.mode == "assign_driftbands" or self.mode == "switch_to_exponential_and_solve" or self.mode == "display_model_details" or self.mode == "set_drift_mode" or self.mode == "plot_residuals" or self.mode == "clear_sequence_model" or self.mode == "predict_phase":
             if event.inaxes == self.ax:
                 pulse_idx = self.get_pulse_bin(event.ydata, inrange=False)
                 self.selected = self.drift_sequences.get_sequence_number(pulse_idx, self.npulses)
                 if self.selected is not None:
 
                     # In some modes, the user only can select sequences with existing models
-                    if self.mode == "switch_to_quadratic_and_solve" or self.mode == "switch_to_exponential_and_solve" or self.mode == "assign_driftbands" or self.mode == "display_model_details" or self.mode == "plot_residuals" or self.mode == "clear_sequence_model":
+                    if self.mode == "switch_to_quadratic_and_solve" or self.mode == "switch_to_exponential_and_solve" or self.mode == "assign_driftbands" or self.mode == "display_model_details" or self.mode == "plot_residuals" or self.mode == "clear_sequence_model" or self.mode == "predict_phase":
                         if self.selected not in self.model_fits.keys():
                             return
 
@@ -1199,55 +1238,54 @@ class DriftAnalysisInteractivePlot(DriftAnalysis):
             if event.key == "H":
                 print("Key   Description")
                 print("----------------------------------------------")
-                print("[Standard Matplotlib interface]")
-                print("h     Go 'home' (default view)")
+                print("A     Plot the auto-correlation of each pulse")
+                print("b     Predict the phase for a model at a specified pulse number")
+                print("c     Print out all subpulses")
+                print("C     Crop pulsestack to current visible image")
+                print("d     Plot the cross-correlation of pulses with their successor")
+                print("D     Assign the nearest model driftband to each subpulse")
+                print("E     Switch to exponential model and redo fit using all subpulses assigned driftbands in sequence")
                 print("f     Make window full screen")
-                print("s     Save plot")
-                print("l     Toggle y-axis logarithmic")
-                print("L     Toggle x-axis logarithmic")
-                print("q     Quit")
-                print("[Drift analysis]")
+                print("F     Set fiducial point")
+                print("h     Go 'home' (default view)")
                 print("H     Prints this help")
                 print("j     Save analysis to (json) file")
                 print("J     'Save as' to (json) file")
-                print("^     Set subpulses to local maxima")
-                print("S     Toggle pulsestack smoothed with Gaussian filter")
-                print("'     Save subpulses in current view to text file")
-                print("F     Set fiducial point")
+                print("l     Toggle y-axis logarithmic")
+                print("L     Toggle x-axis logarithmic")
+                print("m     Print model parameters to stdout")
+                print("M     Set the drift mode of a drift sequence")
+                print("n     Print the nulling fraction (i.e. the fraction of pulses without subpulses)")
+                print("N     Plot nulling histogram")
                 print("O     Set on-pulse region")
-                print("C     Crop pulsestack to current visible image")
-                print(".     Add a subpulse")
-                print(">     Delete a subpulse")
                 print("P     Plot the profile of the current view")
-                print("[     Plot the profile for a specified mode")
+                print("q     Quit")
+                print("r     Plot subpulse residuals from driftband model")
+                print("s     Save plot")
+                print("S     Toggle pulsestack smoothed with Gaussian filter")
                 print("t     Make static LRFS of the current view")
                 print("T     Make interactive \"pulsestack\" of the LRFS of the current view")
+                print("v     Toggle visibility of plot feature")
+                print("x     Plot the maximum pixels in each pulse")
+                print("X     Remove a sequence's drifting model and subpulse driftband associations")
+                print("z     Zoom to selected drift sequence")
+                print("3     Plot model P3 as a function of pulse number")
+                print("4     Make static 2DFS of the current view")
+                print("^     Set subpulses to local maxima")
+                print("'     Save subpulses in current view to text file")
+                print(".     Add a subpulse")
+                print(">     Delete a subpulse")
+                print("[     Plot the profile for a specified mode")
                 print("/     Add a drift mode boundary")
                 print("?     Delete a drift mode boundary")
-                print("v     Toggle visibility of plot feature")
-                print("z     Zoom to selected drift sequence")
-                print("d     Plot the cross-correlation of pulses with their successor")
-                print("A     Plot the auto-correlation of each pulse")
-                print("D     Assign the nearest model driftband to each subpulse")
-                print("r     Plot subpulse residuals from driftband model")
                 print("@     Perform quadratic fitting via subpulse selection (McSweeney et al, 2017)")
                 print("#     Switch to quadratic model and redo fit using all subpulses assigned driftbands in sequence")
-                print("4     Make static 2DFS of the current view")
-                print("3     Plot model P3 as a function of pulse number")
-                print("E     Switch to exponential model and redo fit using all subpulses assigned driftbands in sequence")
                 print("$     Plot the drift rate of the model fits against pulse number")
                 print("&     Plot the driftrate decay rate of the model fits against pulse number")
                 print("%     3D plot of drift rate (d) vs d-dot vs pulse number")
                 print("*     Plot the (exponential) model parameters as a function of pulse number")
                 print("(     Plot the (quadratic) model parameters as a function of pulse number")
-                print("m     Print model parameters to stdout")
-                print("M     Set the drift mode of a drift sequence")
                 print("+/-   Set upper/lower colorbar range")
-                print("x     Plot the maximum pixels in each pulse")
-                print("n     Print the nulling fraction (i.e. the fraction of pulses without subpulses)")
-                print("N     Plot nulling histogram")
-                print("X     Remove a sequence's drifting model and subpulse driftband associations")
-                print("c     Print out all subpulses")
 
             elif event.key == "j":
                 self.save_json()
@@ -1833,6 +1871,11 @@ class DriftAnalysisInteractivePlot(DriftAnalysis):
                 self.fig.canvas.draw()
                 self.mode = "switch_to_exponential_and_solve"
 
+            elif event.key == "b":
+                self.ax.set_title("Select a drift sequence by clicking on the pulsestack.\nPress enter to confirm, esc to cancel.")
+                self.fig.canvas.draw()
+                self.mode = "predict_phase"
+
             elif event.key == "m":
                 self.ax.set_title("Select a drift sequence by clicking on the pulsestack.\nPress enter to confirm, esc to cancel.")
                 self.fig.canvas.draw()
@@ -2379,6 +2422,45 @@ class DriftAnalysisInteractivePlot(DriftAnalysis):
                     self.quadratic_selected_plt[0].set_data([], [])
                     self.quadratic_selected_plt = None
 
+                self.deselect()
+                self.set_default_mode()
+
+        elif self.mode == "predict_phase":
+
+            if event.key == "enter":
+
+                # Prompt the user for a pulse number
+                root = tkinter.Tk()
+                root.withdraw()
+                pulse = tkinter.simpledialog.askfloat("Pulse number", "Select a pulse number", parent=root)
+
+                if not pulse:
+                    self.deselect()
+                    self.fig.canvas.draw()
+                    return
+
+                # Prompt the user for a pulse number
+                root = tkinter.Tk()
+                root.withdraw()
+                driftband = tkinter.simpledialog.askfloat("Driftband number", "Select a driftband number", parent=root)
+
+                if not driftband:
+                    self.deselect()
+                    self.fig.canvas.draw()
+                    return
+
+                # Print out the phase and its error
+                model = self.model_fits[self.selected]
+                ph = model.calc_phase(pulse, driftband)
+                ph_err = model.calc_phase_err(pulse, driftband)
+                print("Predicted phase for pulse {}, driftband {}:".format(pulse, driftband))
+                print("    {:.3f} ± {:.3f} deg".format(ph, ph_err))
+
+                # Return to normal mode
+                self.deselect()
+                self.set_default_mode()
+
+            elif event.key == "escape":
                 self.deselect()
                 self.set_default_mode()
 
