@@ -328,23 +328,29 @@ class DriftSequences:
         self.boundaries = [int(v) for i, v in enumerate(self.boundaries) if i not in boundary_idxs]
         self.modes = [v for i, v in enumerate(self.modes) if i not in boundary_idxs]
 
-    def get_bounding_pulse_idxs(self, sequence_idx, npulses):
+    def add_offset_to_boundaries(self, offset):
+        self.boundaries = [b + offset for b in self.boundaries]
+
+    def get_bounding_pulse_idxs(self, sequence_idx, pulsestack):
         '''
         Returns the first and last pulses indexes in this sequence
         '''
+        p0 = pulsestack.get_pulse_from_bin(0)
+        pf = pulsestack.get_pulse_from_bin(pulsestack.npulses - 1)
+
         if len(self.boundaries) == 0:
-            return 0, npulses - 1
+            return p0, pf
 
         if sequence_idx < 0:
             sequence_idx = len(self.boundaries) + 1 + sequence_idx
 
         if sequence_idx == 0:
-            first_idx = 0
+            first_idx = p0
         else:
             first_idx = self.boundaries[sequence_idx - 1] + 1
 
         if sequence_idx == len(self.boundaries):
-            last_idx = npulses - 1
+            last_idx = pf
         else:
             last_idx = self.boundaries[sequence_idx]
 
@@ -353,11 +359,12 @@ class DriftSequences:
     def get_all_first_pulses(self):
         return [0] + [i+1 for i in self.boundaries]
 
-    def get_all_last_pulses(self, npulses):
-        return self.boundaries + [npulses-1]
+    def get_all_last_pulses(self, pulsestack):
+        pf = pulsestack.get_pulse_from_bin(pulsestack.npulses - 1)
+        return self.boundaries + [pf]
 
-    def is_pulse_in_sequence(self, sequence_idx, pulse_idx, npulses):
-        first_idx, last_idx = self.get_bounding_pulse_idxs(sequence_idx, npulses)
+    def is_pulse_in_sequence(self, sequence_idx, pulse_idx, pulsestack):
+        first_idx, last_idx = self.get_bounding_pulse_idxs(sequence_idx, pulsestack)
 
         if pulse_idx >= first_idx and pulse_idx <= last_idx:
             return True
@@ -992,7 +999,7 @@ class DriftAnalysis(pulsestack.Pulsestack):
         xlo = self.first_phase
         xhi = self.first_phase + self.nbins*self.dphase_deg
 
-        ys = self.get_pulse_from_bin(self.drift_sequences.get_pulse_mid_idxs())
+        ys = self.drift_sequences.get_pulse_mid_idxs()
         if self.dm_boundary_plt is not None:
             segments = np.array([[[xlo, y], [xhi, y]] for y in ys])
             self.dm_boundary_plt.set_segments(segments)
@@ -1000,7 +1007,7 @@ class DriftAnalysis(pulsestack.Pulsestack):
             self.dm_boundary_plt = self.ax.hlines(ys, xlo, xhi, colors=["k"], linestyles='dashed')
 
         for i in range(self.drift_sequences.number_of_sequences()):
-            _, last_pulse_in_sequence = self.drift_sequences.get_bounding_pulse_idxs(i, self.npulses)
+            _, last_pulse_in_sequence = self.drift_sequences.get_bounding_pulse_idxs(i, self)
             self.ax.text(self.first_phase, last_pulse_in_sequence, self.drift_sequences.modes[i], va='top')
 
     def plot_all_model_fits(self):
@@ -1185,7 +1192,7 @@ class DriftAnalysisInteractivePlot(DriftAnalysis):
                         if self.selected not in self.model_fits.keys():
                             return
 
-                    first_idx, last_idx = self.drift_sequences.get_bounding_pulse_idxs(self.selected, self.npulses)
+                    first_idx, last_idx = self.drift_sequences.get_bounding_pulse_idxs(self.selected, self)
                     self.ax.set_title("Select a drift sequence by clicking on the pulsestack.\n({}, {}) - Press enter to confirm, esc to cancel.".format(first_idx, last_idx))
                 else:
                     self.ax.set_title("Select a drift sequence by clicking on the pulsestack.\nPress enter to confirm, esc to cancel.")
@@ -1206,7 +1213,7 @@ class DriftAnalysisInteractivePlot(DriftAnalysis):
             # If a drift sequence has already been selected, only let subpulses in the same
             # sequence be selected
             if self.drift_sequence_selected is not None:
-                if not self.drift_sequences.is_pulse_in_sequence(self.drift_sequence_selected, pulse_idx, self.npulses):
+                if not self.drift_sequences.is_pulse_in_sequence(self.drift_sequence_selected, pulse_idx, self):
                     self.deselect()
                     self.fig.canvas.draw()
                     return
@@ -1493,7 +1500,7 @@ class DriftAnalysisInteractivePlot(DriftAnalysis):
                 # Iterate through the sequences and accumulate profiles
                 for sequence_idx in range(self.drift_sequences.number_of_sequences()):
                     if self.drift_sequences.modes[sequence_idx] == selected_mode:
-                        first_idx, last_idx = self.drift_sequences.get_bounding_pulse_idxs(sequence_idx, self.npulses)
+                        first_idx, last_idx = self.drift_sequences.get_bounding_pulse_idxs(sequence_idx, self)
                         cropped = self.crop(pulse_range=[first_idx, last_idx], inplace=False)
                         profile += np.sum(cropped.values, axis=0)
                         pulse_count += last_idx - first_idx + 1
@@ -1931,7 +1938,7 @@ class DriftAnalysisInteractivePlot(DriftAnalysis):
                 sequence_idxs = [self.drift_sequences.get_sequence_number(pulse_idx, self) for pulse_idx in pulses]
                 modes = [self.drift_sequences.modes[i] if self.drift_sequences.modes[i] != "" else "None" for i in sequence_idxs]
                 first_pulses = [self.drift_sequences.get_all_first_pulses()[i] for i in sequence_idxs]
-                last_pulses = [self.drift_sequences.get_all_last_pulses(self.npulses)[i] for i in sequence_idxs]
+                last_pulses = [self.drift_sequences.get_all_last_pulses(self)[i] for i in sequence_idxs]
                 relative_pulses = [pulses[i] - first_pulses[i] for i in range(len(phases))]
                 relative_last_pulses = [pulses[i] - last_pulses[i] for i in range(len(phases))]
                 drift_rates = [self.model_fits[sequence_idxs[i]].calc_driftrate(pulses[i]) if sequence_idxs[i] in self.model_fits.keys() else 'None' for i in range(len(pulses))]
@@ -2189,7 +2196,7 @@ class DriftAnalysisInteractivePlot(DriftAnalysis):
                     return
 
                 # Here, "selected" refers to the drift sequence number
-                first_pulse_idx, last_pulse_idx = self.drift_sequences.get_bounding_pulse_idxs(self.selected, self.npulses)
+                first_pulse_idx, last_pulse_idx = self.drift_sequences.get_bounding_pulse_idxs(self.selected, self)
 
                 # Set the zoom (only in y-direction)
                 ylo = self.get_pulse_from_bin(first_pulse_idx - 0.5)
@@ -2382,7 +2389,7 @@ class DriftAnalysisInteractivePlot(DriftAnalysis):
 
                 if len(self.quadratic_selected) >= 4:
                     self.candidate_quadratic_model.optimise_fit_to_subpulses(ph, p, d)
-                    pulse_idx_range = self.drift_sequences.get_bounding_pulse_idxs(self.drift_sequence_selected, self.npulses)
+                    pulse_idx_range = self.drift_sequences.get_bounding_pulse_idxs(self.drift_sequence_selected, self)
                     first_pulse, last_pulse = self.get_pulse_from_bin(np.array(pulse_idx_range))
                     self.candidate_quadratic_model.set_pulse_bounds(first_pulse, last_pulse)
 
