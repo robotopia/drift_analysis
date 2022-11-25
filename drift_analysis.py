@@ -312,10 +312,10 @@ class DriftSequences:
         else:
             return False
 
-    def add_boundary(self, pulse_idx, npulses):
+    def add_boundary(self, pulse_idx, pulsestack):
         if not self.has_boundary(pulse_idx):
             # Work out where to put the new boundary
-            sequence_idx = self.get_sequence_number(pulse_idx, npulses)
+            sequence_idx = self.get_sequence_number(pulse_idx, pulsestack)
 
             # Get the mode of the current mode
             mode = self.modes[sequence_idx]
@@ -370,14 +370,15 @@ class DriftSequences:
         else:
             return np.array(self.boundaries)[boundary_idxs] + 0.5
 
-    def get_sequence_number(self, pulse_idx, npulses):
+    def get_sequence_number(self, pulse_idx, pulsestack):
         # There are lots of corner cases!
         # Remember, the first boundary sits between sequences 0 and 1,
         # and the last sits between sequences n and n+1, where
         # n = len(self.boundaries) - 1
         # All the "0.5"s around the place is to make this function give sensible
         # results when pulse_idx is a fractional value
-        if pulse_idx < -0.5 or pulse_idx >= npulses - 0.5:
+        _, _, plo, phi = pulsestack.calc_image_extent()
+        if pulse_idx < plo or pulse_idx >= phi:
             sequence_number = None
         elif self.number_of_sequences() == 1:
             sequence_number = 0
@@ -1176,7 +1177,7 @@ class DriftAnalysisInteractivePlot(DriftAnalysis):
         elif self.mode == "zoom_drift_sequence" or self.mode == "switch_to_quadratic_and_solve" or self.mode == "assign_driftbands" or self.mode == "switch_to_exponential_and_solve" or self.mode == "display_model_details" or self.mode == "set_drift_mode" or self.mode == "plot_residuals" or self.mode == "clear_sequence_model" or self.mode == "predict_phase":
             if event.inaxes == self.ax:
                 pulse_idx = self.get_pulse_bin(event.ydata, inrange=False)
-                self.selected = self.drift_sequences.get_sequence_number(pulse_idx, self.npulses)
+                self.selected = self.drift_sequences.get_sequence_number(pulse_idx, self)
                 if self.selected is not None:
 
                     # In some modes, the user only can select sequences with existing models
@@ -1841,7 +1842,7 @@ class DriftAnalysisInteractivePlot(DriftAnalysis):
 
                     # Get the mode for this model
                     pulse_idx = self.get_pulse_bin(pmid[-1])
-                    sequence_idx = self.drift_sequences.get_sequence_number(pulse_idx, self.npulses)
+                    sequence_idx = self.drift_sequences.get_sequence_number(pulse_idx, self)
                     mode = self.drift_sequences.modes[sequence_idx]
                     colours.append(list(colour_dict[mode]))
 
@@ -1927,7 +1928,7 @@ class DriftAnalysisInteractivePlot(DriftAnalysis):
                 # Collect all the info to print out
                 phases = self.subpulses.get_phases()
                 pulses = self.subpulses.get_pulses()
-                sequence_idxs = [self.drift_sequences.get_sequence_number(pulse_idx, self.npulses) for pulse_idx in pulses]
+                sequence_idxs = [self.drift_sequences.get_sequence_number(pulse_idx, self) for pulse_idx in pulses]
                 modes = [self.drift_sequences.modes[i] if self.drift_sequences.modes[i] != "" else "None" for i in sequence_idxs]
                 first_pulses = [self.drift_sequences.get_all_first_pulses()[i] for i in sequence_idxs]
                 last_pulses = [self.drift_sequences.get_all_last_pulses(self.npulses)[i] for i in sequence_idxs]
@@ -2132,7 +2133,7 @@ class DriftAnalysisInteractivePlot(DriftAnalysis):
                 #      (higher) sequence number
                 #   2) the fit for the selected sequence should be copied to the two "new"
                 #      sequences, with the appropriate adjustments to the pulse ranges
-                seq = self.drift_sequences.get_sequence_number(self.selected, self.npulses)
+                seq = self.drift_sequences.get_sequence_number(self.selected, self)
                 nseq = self.drift_sequences.number_of_sequences()
 
                 # 1.
@@ -2161,7 +2162,7 @@ class DriftAnalysisInteractivePlot(DriftAnalysis):
                         self.model_fits[seq+1].plot_all_driftbands(self.ax, phlim, pstep=self.dpulse, color='k')
 
                 # Now actually add the boundary
-                self.drift_sequences.add_boundary(self.selected, self.npulses)
+                self.drift_sequences.add_boundary(self.selected, self)
 
                 xlim = self.ax.get_xlim()
                 ylim = self.ax.get_ylim()
@@ -2355,7 +2356,7 @@ class DriftAnalysisInteractivePlot(DriftAnalysis):
 
                 # Next, set the selected drift sequence if it hasn't been selected yet
                 if self.drift_sequence_selected is None:
-                    self.drift_sequence_selected = self.drift_sequences.get_sequence_number(pulse_idx, self.npulses)
+                    self.drift_sequence_selected = self.drift_sequences.get_sequence_number(pulse_idx, self)
 
                     # Also, if this (newly selected) drift sequence already has plotted driftbands, remove them from the plot
                     if self.drift_sequence_selected in self.model_fits.keys():
