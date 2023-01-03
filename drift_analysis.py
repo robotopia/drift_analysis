@@ -1248,6 +1248,7 @@ class DriftAnalysisInteractivePlot(DriftAnalysis):
                 print("----------------------------------------------")
                 print("A     Plot the auto-correlation of each pulse")
                 print("b     Predict the phase for a model at a specified pulse number")
+                print("B     Print out drift sequences information")
                 print("c     Print out all subpulses")
                 print("C     Crop pulsestack to current visible image")
                 print("d     Plot the cross-correlation of pulses with their successor")
@@ -1950,6 +1951,23 @@ class DriftAnalysisInteractivePlot(DriftAnalysis):
                     f.write("# | Mode | Sequence number | Phase (deg) | Pulse number in sequence | Pulse number | Pulse number from end of sequence | Drift rate (deg/pulse) | Driftband number |\n")
                     for i in range(len(phases)):
                         f.write("{} {} {} {} {} {} {} {}\n".format(modes[i], sequence_idxs[i], phases[i], int(relative_pulses[i]), int(pulses[i]), int(relative_last_pulses[i]), drift_rates[i], driftbands[i]))
+
+            elif event.key == "B":
+                # Get a filename to save to
+                root = tkinter.Tk()
+                root.withdraw()
+                subpulsefile = tkinter.filedialog.asksaveasfilename(filetypes=(("All files", "*.*"),))
+
+                # Collect all the info to print out
+                modes = self.drift_sequences.modes
+                first_pulses = self.drift_sequences.get_all_first_pulses()
+                last_pulses = self.drift_sequences.get_all_last_pulses(self)
+
+                with open(subpulsefile, 'w') as f:
+                    f.write("# Drift sequences of {}\n".format(self.jsonfile))
+                    f.write("# | Mode | First pulse | Last pulse |\n")
+                    for i in range(len(modes)):
+                        f.write("{} {} {}\n".format(modes[i], first_pulses[i], last_pulses[i]))
 
         ########################################
         # SPECIALISED KEYS FOR DIFFERENT MODES #
