@@ -1278,6 +1278,7 @@ class DriftAnalysisInteractivePlot(DriftAnalysis):
                 print("x     Plot the maximum pixels in each pulse")
                 print("X     Remove a sequence's drifting model and subpulse driftband associations")
                 print("z     Zoom to selected drift sequence")
+                print("0     Save the figure to file")
                 print("3     Plot model P3 as a function of pulse number")
                 print("4     Make static 2DFS of the current view")
                 print("^     Set subpulses to local maxima")
@@ -1771,6 +1772,41 @@ class DriftAnalysisInteractivePlot(DriftAnalysis):
                 dr_ax.set_xlabel("Pulse number")
                 dr_ax.set_ylabel("Drift rate ($^\\circ/P$)")
                 dr_fig.show()
+
+            elif event.key == "0":
+                # Get a filename to save to
+                root = tkinter.Tk()
+                root.withdraw()
+                filename = tkinter.filedialog.asksaveasfilename(filetypes=(("All files", "*.*"),))
+
+                if not filename:
+                    return
+
+                # Get a font size for the plot
+                root = tkinter.Tk()
+                root.withdraw()
+                new_font_size = tkinter.simpledialog.askfloat(f"Font size (current: {plt.rcParams['font.size']})", "Choose a new font size", parent=root)
+
+                # Change the font sizes
+                if new_font_size:
+                    old_font_size = self.ax.xaxis.label.get_size()
+                    self.ax.xaxis.label.set_size(new_font_size)
+                    self.ax.yaxis.label.set_size(new_font_size)
+                    self.cbar.ax.tick_params(axis='both', labelsize=new_font_size)
+                    self.ax.tick_params(axis='both', labelsize=new_font_size)
+
+                # Save the figure
+                current_title = self.ax.get_title()
+                self.ax.set_title(None)
+                self.fig.savefig(filename, bbox_inches='tight')
+                self.ax.set_title(current_title)
+
+                # Reset the font sizes
+                if new_font_size:
+                    self.ax.xaxis.label.set_size(old_font_size)
+                    self.ax.yaxis.label.set_size(old_font_size)
+                    self.cbar.ax.tick_params(axis='both', labelsize=old_font_size)
+                    self.ax.tick_params(axis='both', labelsize=old_font_size)
 
             elif event.key == "3":
                 P3_fig, P3_ax = plt.subplots()
