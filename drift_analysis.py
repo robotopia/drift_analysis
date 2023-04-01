@@ -1006,9 +1006,11 @@ class DriftAnalysis(pulsestack.Pulsestack):
         else:
             self.dm_boundary_plt = self.ax.hlines(ys, xlo, xhi, colors=["k"], linestyles='dashed')
 
+        '''
         for i in range(self.drift_sequences.number_of_sequences()):
             _, last_pulse_in_sequence = self.drift_sequences.get_bounding_pulse_idxs(i, self)
             self.ax.text(self.first_phase, last_pulse_in_sequence, self.drift_sequences.modes[i], va='top')
+        '''
 
     def plot_all_model_fits(self):
         for i in self.model_fits:
